@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:         #f7f6f3;
+  --surface:    #ffffff;
+  --border:     #e8e5de;
+  --border-mid: #d4cfc4;
+  --text:       #37352f;
+  --text-mid:   #6b6860;
+  --text-light: #9b9790;
+  --accent:     #2e7d6b;
+  --accent-bg:  #edf5f3;
+  --danger:     #c0392b;
+  --nudge:      #d4760a;
+  --nudge-bg:   #fdf3e3;
+  --radius:     6px;
+  --radius-lg:  10px;
+  --font-serif: 'Lora', Georgia, serif;
+  --font-sans:  'DM Sans', system-ui, sans-serif;
+  --font-mono:  'IBM Plex Mono', monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+input, button, textarea {
+  font-family: var(--font-sans);
+}
+
+button {
+  cursor: pointer;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-light);
+  letter-spacing: 0.05em;
+}
