@@ -9,9 +9,10 @@ const VISIBILITY_OPTIONS = [
   { value: 'public', label: '🌐 Public', desc: 'Anyone' },
 ]
 
-export default function TodoList({ group, userId, onGroupUpdate }) {
+export default function TodoList({ group, userId, onGroupUpdate, readOnly = false }) {
   const [todos, setTodos] = useState([])
   const [nudges, setNudges] = useState([])
+  const [nudgedIds, setNudgedIds] = useState(new Set())
   const [newTitle, setNewTitle] = useState('')
   const [loading, setLoading] = useState(true)
   const [editingGroup, setEditingGroup] = useState(false)
@@ -218,11 +219,21 @@ export default function TodoList({ group, userId, onGroupUpdate }) {
           ) : (
             <div className="group-title-row">
               <span className="group-title-icon">{group.cover_url ? '' : (group.icon || '📋')}</span>
-              <h2 className="group-title">{group.name}</h2>
+              <div className="group-title-text">
+                <h2 className="group-title">{group.name}</h2>
+                {group.description && <p className="group-description">{group.description}</p>}
+              </div>
               <span className="group-vis-pill">
                 {VISIBILITY_OPTIONS.find(o => o.value === group.visibility)?.label}
               </span>
-              <button className="icon-btn" onClick={() => setEditingGroup(true)} title="Edit list settings">⚙</button>
+              {!readOnly && (
+                <button className="icon-btn" onClick={() => setEditingGroup(true)} title="Edit list settings">⚙</button>
+              )}
+              {readOnly && group._friendProfile && (
+                <span className="readonly-badge">
+                  👤 {group._friendProfile.display_name || group._friendProfile.username}'s list
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -230,38 +241,64 @@ export default function TodoList({ group, userId, onGroupUpdate }) {
 
       {!editingGroup && (
         <>
-          <form onSubmit={addTodo} className="add-todo-form">
-            <input
-              value={newTitle}
-              onChange={e => setNewTitle(e.target.value)}
-              placeholder="Add a task…"
-            />
-            <button type="submit">Add</button>
-          </form>
+          {!readOnly && (
+            <form onSubmit={addTodo} className="add-todo-form">
+              <input
+                value={newTitle}
+                onChange={e => setNewTitle(e.target.value)}
+                placeholder="Add a task…"
+              />
+              <button type="submit">Add</button>
+            </form>
+          )}
 
           <ul className="todo-list">
             {todos.map((todo, index) => (
               <li
                 key={todo.id}
-                className={`todo-item ${todo.is_complete ? 'complete' : ''} ${dragOver === index ? 'drag-over' : ''}`}
-                draggable
-                onDragStart={e => handleDragStart(e, index)}
-                onDragOver={e => { e.preventDefault(); setDragOver(index) }}
-                onDrop={e => handleDrop(e, index)}
-                onDragLeave={() => setDragOver(null)}
+                className={`todo-item ${todo.is_complete ? 'complete' : ''} ${!readOnly && dragOver === index ? 'drag-over' : ''}`}
+                draggable={!readOnly}
+                onDragStart={!readOnly ? e => handleDragStart(e, index) : undefined}
+                onDragOver={!readOnly ? e => { e.preventDefault(); setDragOver(index) } : undefined}
+                onDrop={!readOnly ? e => handleDrop(e, index) : undefined}
+                onDragLeave={!readOnly ? () => setDragOver(null) : undefined}
                 style={{ '--i': index }}
               >
-                <span className="drag-handle">⠿</span>
-                <input type="checkbox" checked={todo.is_complete} onChange={() => toggleTodo(todo)} />
+                {!readOnly && <span className="drag-handle">⠿</span>}
+                {!readOnly && (
+                  <input type="checkbox" checked={todo.is_complete} onChange={() => toggleTodo(todo)} />
+                )}
                 <span className="todo-title">{todo.title}</span>
                 {nudgeCount(todo.id) > 0 && (
                   <span className="nudge-badge">👋 {nudgeCount(todo.id)}</span>
                 )}
-                <button className="delete-btn" onClick={() => deleteTodo(todo.id)}>✕</button>
+                {readOnly ? (
+                  <button
+                    className={`nudge-btn ${nudgedIds.has(todo.id) ? 'nudged' : ''}`}
+                    disabled={nudgedIds.has(todo.id)}
+                    onClick={async () => {
+                      if (nudgedIds.has(todo.id)) return
+                      await supabase.from('nudges').insert({ todo_id: todo.id, from_user_id: userId })
+                      await supabase.from('notifications').insert({
+                        user_id: group.owner_id,
+                        from_user_id: userId,
+                        type: 'nudge',
+                        entity_id: todo.id,
+                      })
+                      setNudgedIds(prev => new Set([...prev, todo.id]))
+                    }}
+                  >
+                    {nudgedIds.has(todo.id) ? 'Nudged 👋' : 'Nudge 👋'}
+                  </button>
+                ) : (
+                  <button className="delete-btn" onClick={() => deleteTodo(todo.id)}>✕</button>
+                )}
               </li>
             ))}
             {todos.length === 0 && (
-              <li className="todo-empty">No tasks yet — add one above.</li>
+              <li className="todo-empty">
+                {readOnly ? 'All caught up 🎉' : 'No tasks yet — add one above.'}
+              </li>
             )}
           </ul>
         </>

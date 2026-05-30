@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useFadeIn } from '../hooks/useFadeIn'
 
-export default function Friends({ userId }) {
-  const [tab, setTab] = useState('friends') // 'friends' | 'requests' | 'groups'
+const VISIBILITY_ICONS = { private: '🔒', friends: '👥', groups: '🫂', public: '🌐' }
+
+export default function Friends({ userId, onRequestsChange }) {
+  const [tab, setTab] = useState('friends') // 'friends' | 'requests' | 'groups' | 'lists'
   const [friends, setFriends] = useState([])
   const [requests, setRequests] = useState({ incoming: [], outgoing: [] })
   const [friendGroups, setFriendGroups] = useState([])
@@ -11,18 +13,16 @@ export default function Friends({ userId }) {
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
-  const [selectedFriend, setSelectedFriend] = useState(null)
+  const [loadingLists, setLoadingLists] = useState(false)
   const visible = useFadeIn([tab])
 
   useEffect(() => {
     fetchAll()
 
-    // Realtime friend requests
     const sub = supabase
       .channel('friend-requests-' + userId)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'friend_requests',
-          filter: `to_user_id=eq.${userId}` },
+        { event: '*', schema: 'public', table: 'friend_requests', filter: `to_user_id=eq.${userId}` },
         () => fetchAll()
       )
       .subscribe()
@@ -31,7 +31,7 @@ export default function Friends({ userId }) {
   }, [userId])
 
   const fetchAll = async () => {
-    // Fetch accepted friendships
+    // Accepted friendships
     const { data: fships } = await supabase
       .from('friendships')
       .select(`
@@ -48,7 +48,7 @@ export default function Friends({ userId }) {
     }))
     setFriends(friendList)
 
-    // Fetch pending requests
+    // Pending requests
     const { data: reqs } = await supabase
       .from('friend_requests')
       .select(`
@@ -62,15 +62,40 @@ export default function Friends({ userId }) {
     const incoming = (reqs ?? []).filter(r => r.to_user?.id === userId || r.to_user_id === userId)
     const outgoing = (reqs ?? []).filter(r => r.from_user?.id === userId || r.from_user_id === userId)
     setRequests({ incoming, outgoing })
+    onRequestsChange?.(incoming.length)
 
-    // Fetch friend groups
+    // Friend groups
     const { data: fgroups } = await supabase
       .from('friend_groups')
       .select(`*, members:friend_group_members(friend_id)`)
       .eq('owner_id', userId)
-
     setFriendGroups(fgroups ?? [])
   }
+
+  const fetchFriendsLists = async () => {
+    if (friends.length === 0) { setFriendsLists([]); return }
+    setLoadingLists(true)
+    const friendIds = friends.map(f => f.id)
+
+    // Fetch lists visible to us from friends (friends-visibility or public)
+    const { data } = await supabase
+      .from('list_groups')
+      .select(`
+        *,
+        owner:profiles!list_groups_owner_id_fkey(id, username, display_name, avatar_url)
+      `)
+      .in('owner_id', friendIds)
+      .in('visibility', ['friends', 'public'])
+      .order('created_at', { ascending: false })
+
+    setFriendsLists(data ?? [])
+    setLoadingLists(false)
+  }
+
+  // Load friends' lists when tab is opened
+  useEffect(() => {
+    if (tab === 'lists') fetchFriendsLists()
+  }, [tab, friends])
 
   const searchUsers = async (q) => {
     if (!q.trim()) { setSearchResults([]); return }
@@ -129,9 +154,7 @@ export default function Friends({ userId }) {
   const toggleFriendInGroup = async (groupId, friendId, isInGroup) => {
     if (isInGroup) {
       await supabase.from('friend_group_members')
-        .delete()
-        .eq('group_id', groupId)
-        .eq('friend_id', friendId)
+        .delete().eq('group_id', groupId).eq('friend_id', friendId)
     } else {
       await supabase.from('friend_group_members').insert({ group_id: groupId, friend_id: friendId })
     }
@@ -152,12 +175,18 @@ export default function Friends({ userId }) {
     requests.outgoing.some(r => r.to_user?.id === id) ||
     requests.incoming.some(r => r.from_user?.id === id)
 
+  const tabs = [
+    ['friends', 'Friends'],
+    ['requests', `Requests${requests.incoming.length ? ` (${requests.incoming.length})` : ''}`],
+    ['groups', 'Groups'],
+  ]
+
   return (
     <div className={`page ${visible ? 'fade-in' : ''}`}>
       <div className="page-header">
         <h2>Friends</h2>
         <div className="tab-row">
-          {[['friends', 'Friends'], ['requests', `Requests${requests.incoming.length ? ` (${requests.incoming.length})` : ''}`], ['groups', 'Groups']].map(([id, label]) => (
+          {tabs.map(([id, label]) => (
             <button key={id} className={`tab-btn ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
               {label}
             </button>
@@ -165,17 +194,19 @@ export default function Friends({ userId }) {
         </div>
       </div>
 
-      {/* Search bar always visible */}
-      <div className="search-bar">
-        <input
-          value={search}
-          onChange={e => { setSearch(e.target.value); searchUsers(e.target.value) }}
-          placeholder="Search users by username…"
-        />
-        {searching && <span className="search-spinner">…</span>}
-      </div>
+      {/* Search bar — shown on all tabs except lists */}
+      {tab !== 'lists' && (
+        <div className="search-bar">
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); searchUsers(e.target.value) }}
+            placeholder="Search users by username…"
+          />
+          {searching && <span className="search-spinner">…</span>}
+        </div>
+      )}
 
-      {searchResults.length > 0 && (
+      {searchResults.length > 0 && tab !== 'lists' && (
         <ul className="search-results">
           {searchResults.map(user => (
             <li key={user.id} className="search-result-item">

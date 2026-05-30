@@ -121,7 +121,7 @@ export default function Settings({ profile, onProfileUpdate }) {
                 <input type="file" accept="image/*" onChange={handleAvatarChange} hidden />
               </label>
               {avatarPreview && (
-                <button className="btn-ghost-sm" onClick={() => { setAvatarPreview(null); setAvatarFile(null) }}>
+                <button className="btn-ghost" onClick={() => { setAvatarPreview(null); setAvatarFile(null) }}>
                   Remove
                 </button>
               )}
@@ -148,6 +148,14 @@ export default function Settings({ profile, onProfileUpdate }) {
 
       {tab === 'account' && (
         <div className="settings-section">
+          <div className="settings-block">
+            <h3>Sign out</h3>
+            <p className="settings-hint">You'll be returned to the login screen.</p>
+            <button className="btn-ghost signout-btn" onClick={() => supabase.auth.signOut()}>
+              Sign out
+            </button>
+          </div>
+
           <div className="settings-block">
             <h3>Change password</h3>
             <div className="field">
