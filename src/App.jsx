@@ -103,6 +103,12 @@ function AppShell({ session }) {
                 setSelectedGroup(g)
                 setCurrentView('list')
               }}
+              onGroupUpdated={(updated) => {
+                setListGroups(prev => prev.map(g => g.id === updated.id ? updated : g))
+              }}
+              onGroupDeleted={(id) => {
+                setListGroups(prev => prev.filter(g => g.id !== id))
+              }}
               userId={profile.id}
             />
           )}

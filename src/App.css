@@ -73,8 +73,16 @@ textarea { resize: vertical; }
   to   { opacity: 0; transform: translateY(-8px); }
 }
 
+/* fade-in: use opacity+transform transition to avoid re-trigger flicker */
 .fade-in {
-  animation: fadeUp var(--t-slow) both;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+/* Initial invisible state set in JS via the useFadeIn hook */
+.fade-in-hidden {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
 .fade-in .todo-item {
@@ -1295,3 +1303,142 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 
 /* ── Remove old inline delete button (now in panel) ── */
 .delete-btn { display: none; }
+/* ── Nudge tooltip ── */
+.nudge-tooltip-wrap { position: relative; display: inline-flex; align-items: center; }
+.nudge-tooltip {
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%);
+  background: var(--text); color: var(--bg);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  min-width: 160px; max-width: 220px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  z-index: 50;
+  animation: fadeUp 0.15s ease;
+}
+.nudge-tooltip::after {
+  content: '';
+  position: absolute; top: 100%; left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--text);
+}
+.nudge-tooltip-title {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: rgba(255,255,255,0.5);
+  margin-bottom: 8px;
+}
+.nudge-tooltip-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 0;
+  font-size: 13px; color: rgba(255,255,255,0.9);
+}
+.nudge-tooltip-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(255,255,255,0.2); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600; flex-shrink: 0;
+}
+.nudge-tooltip-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ── Expanded add-todo form ── */
+.add-todo-section { margin-bottom: 16px; }
+.add-todo-trigger {
+  width: 100%; text-align: left;
+  padding: 10px 14px;
+  border: 1px dashed var(--border-mid);
+  border-radius: var(--radius);
+  background: transparent; color: var(--text-light);
+  font-size: 14px;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.add-todo-trigger:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+.add-todo-form-expanded {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.add-todo-title-input {
+  width: 100%; padding: 13px 16px;
+  border: none; background: transparent;
+  font-size: 15px; font-weight: 500; color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.add-todo-title-input:focus { outline: none; }
+.add-todo-title-input::placeholder { color: var(--text-light); font-weight: 400; }
+
+.add-todo-meta-row {
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.add-todo-meta-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; cursor: pointer; position: relative;
+  font-size: 13px; color: var(--text-mid);
+  border-right: 1px solid var(--border);
+}
+.add-todo-date-input {
+  position: absolute; opacity: 0; inset: 0;
+  cursor: pointer; width: 100%; border: none; padding: 0;
+}
+.add-todo-meta-value { font-size: 12px; white-space: nowrap; }
+.add-todo-meta-value.muted { color: var(--text-light); }
+.add-todo-status-select {
+  border: none; background: transparent; font-size: 12px; font-weight: 500;
+  cursor: pointer; padding: 0; appearance: none; -webkit-appearance: none;
+}
+.add-todo-status-select:focus { outline: none; }
+
+.add-todo-actions {
+  display: flex; gap: 8px; align-items: center;
+  padding: 10px 14px;
+}
+
+/* ── Friend group share picker (in list edit) ── */
+.friend-group-share-picker {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.fgs-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.fgs-label { font-size: 12px; font-weight: 600; color: var(--text-mid); }
+.fgs-row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text); cursor: pointer;
+  padding: 4px 0;
+}
+.fgs-row input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
+/* ── Task detail due preview ── */
+.task-detail-due-preview {
+  font-size: 12px; color: var(--text-light); font-family: var(--font-mono);
+  margin-top: 2px;
+}
+.task-detail-due-preview.overdue { color: var(--danger); }
+
+/* ── overdue text color (task list) ── */
+.todo-due.overdue { color: var(--danger) !important; }
+.todo-due { font-size: 11px; color: var(--text-light); font-family: var(--font-mono); }
+.todo-due.due-soon { color: var(--nudge); }
+
+/* ── Sidebar bold nav label ── */
+.sidebar-nav-bold { font-weight: 600; }
+
+/* ── Notif panel badge ── */
+.notif-panel-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--danger); color: white;
+  font-size: 11px; font-weight: 700; font-family: var(--font-mono);
+  min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: 999px; margin-left: 8px; vertical-align: middle;
+}
+
+/* Prevent fade-in flicker: use opacity transition instead of animation on re-renders */
+.page, .todo-page, .my-tasks-home {
+  transition: opacity 0.15s ease;
+}
