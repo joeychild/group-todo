@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar'
 import TodoList from './components/TodoList'
 import MyTasksHome from './components/MyTasksHome'
 import Friends from './components/Friends'
+import NotificationsPanel from './components/NotificationsPanel'
 import Settings from './components/Settings'
 import ToastContainer from './components/ToastContainer'
 import './App.css'
@@ -65,16 +66,22 @@ function AppShell({ session }) {
   if (loading) return <div className="loading">Loading…</div>
   if (!profile) return <UsernameSetup userId={session.user.id} onComplete={setProfile} />
 
+  const isReadOnly = !!selectedGroup?._isFriendList
+
   return (
     <NotificationProvider userId={profile.id}>
       <div className="app-layout">
         <Sidebar
           profile={profile}
           userId={profile.id}
+          myLists={listGroups}
           selectedGroup={selectedGroup}
           onSelectGroup={setSelectedGroup}
           currentView={currentView}
-          onViewChange={(v) => { setCurrentView(v); if (v !== 'list' && v !== 'friend-list') setSelectedGroup(null) }}
+          onViewChange={(v) => {
+            setCurrentView(v)
+            if (v !== 'list' && v !== 'friend-list') setSelectedGroup(null)
+          }}
         />
         <main className="main-content">
           {(currentView === 'list' || currentView === 'friend-list') && selectedGroup && (
@@ -82,8 +89,7 @@ function AppShell({ session }) {
               key={selectedGroup.id}
               group={selectedGroup}
               userId={profile.id}
-              // friend lists are read-only (no add/delete)
-              readOnly={!!selectedGroup._isFriendList}
+              readOnly={isReadOnly}
               onGroupUpdate={handleGroupUpdate}
             />
           )}
@@ -101,9 +107,8 @@ function AppShell({ session }) {
             />
           )}
           {currentView === 'friends' && <Friends userId={profile.id} />}
-          {currentView === 'settings' && (
-            <Settings profile={profile} onProfileUpdate={setProfile} />
-          )}
+          {currentView === 'notifications' && <NotificationsPanel />}
+          {currentView === 'settings' && <Settings profile={profile} onProfileUpdate={setProfile} />}
         </main>
         <ToastContainer />
       </div>

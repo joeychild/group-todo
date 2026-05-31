@@ -2,10 +2,14 @@ import { useNotifications } from '../context/NotificationContext'
 import { useFadeIn } from '../hooks/useFadeIn'
 
 const TYPE_CONFIG = {
-  nudge: { icon: '👋', label: 'nudged you about a task' },
-  friend_request: { icon: '🤝', label: 'sent you a friend request' },
-  friend_accepted: { icon: '✓', label: 'accepted your friend request' },
-  list_shared: { icon: '📋', label: 'shared a list with you' },
+  nudge:                 { icon: '👋', label: 'nudged you about a task' },
+  friend_request:        { icon: '🤝', label: 'sent you a friend request' },
+  friend_accepted:       { icon: '✓',  label: 'accepted your friend request' },
+  friend_removed:        { icon: '👤', label: 'removed you as a friend' },
+  list_shared:           { icon: '📋', label: 'shared a list with you' },
+  nudged_task_completed: { icon: '✅', label: 'completed a task you nudged' },
+  friend_list_created:   { icon: '📝', label: 'created a new list' },
+  due_date:              { icon: '⏰', label: 'task is due' },
 }
 
 function timeAgo(dateStr) {
@@ -19,14 +23,19 @@ function timeAgo(dateStr) {
 }
 
 export default function NotificationsPanel() {
-  const { notifications, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
   const visible = useFadeIn([])
 
   return (
     <div className={`page ${visible ? 'fade-in' : ''}`}>
       <div className="page-header">
-        <h2>Notifications</h2>
-        {notifications.some(n => !n.read) && (
+        <h2>
+          Notifications
+          {unreadCount > 0 && (
+            <span className="notif-panel-badge">{unreadCount}</span>
+          )}
+        </h2>
+        {unreadCount > 0 && (
           <button className="btn-ghost-sm" onClick={markAllRead}>Mark all read</button>
         )}
       </div>
@@ -49,7 +58,7 @@ export default function NotificationsPanel() {
                 }
               </div>
               <div className="notif-body">
-                <p className="notif-text">
+                <p className={`notif-text ${!n.read ? 'notif-text-bold' : ''}`}>
                   <strong>{name}</strong> {cfg.label}
                 </p>
                 <span className="notif-time">{timeAgo(n.created_at)}</span>

@@ -2,53 +2,62 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { useFadeIn } from '../hooks/useFadeIn'
 
-const VISIBILITY_ICONS = { private: '🔒', friends: '👥', groups: '🫂', public: '🌐' }
-
-export default function Friends({ userId, onRequestsChange }) {
-  const [tab, setTab] = useState('friends') // 'friends' | 'requests' | 'groups' | 'lists'
+export default function Friends({ userId }) {
+  const [tab, setTab] = useState('friends')
   const [friends, setFriends] = useState([])
   const [requests, setRequests] = useState({ incoming: [], outgoing: [] })
   const [friendGroups, setFriendGroups] = useState([])
+  const [removedAlerts, setRemovedAlerts] = useState([]) // {id, username} of people who removed you
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
-  const [loadingLists, setLoadingLists] = useState(false)
   const visible = useFadeIn([tab])
 
   useEffect(() => {
     fetchAll()
+    fetchRemovedAlerts()
 
-    const sub = supabase
-      .channel('friend-requests-' + userId)
+    const sub = supabase.channel('friend-requests-' + userId)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'friend_requests', filter: `to_user_id=eq.${userId}` },
         () => fetchAll()
       )
       .subscribe()
-
     return () => supabase.removeChannel(sub)
   }, [userId])
 
+  const fetchRemovedAlerts = async () => {
+    // Pull unread friend_removed notifications to show inline alerts
+    const { data } = await supabase
+      .from('notifications')
+      .select('id, from_user:profiles!notifications_from_user_id_fkey(username, display_name)')
+      .eq('user_id', userId)
+      .eq('type', 'friend_removed')
+      .eq('read', false)
+    setRemovedAlerts(data ?? [])
+  }
+
+  const dismissAlert = async (notifId) => {
+    await supabase.from('notifications').update({ read: true }).eq('id', notifId)
+    setRemovedAlerts(prev => prev.filter(a => a.id !== notifId))
+  }
+
   const fetchAll = async () => {
-    // Accepted friendships
     const { data: fships } = await supabase
       .from('friendships')
       .select(`
-        id,
-        user_a, user_b,
+        id, user_a, user_b,
         profile_a:profiles!friendships_user_a_fkey(id, username, display_name, avatar_url),
         profile_b:profiles!friendships_user_b_fkey(id, username, display_name, avatar_url)
       `)
       .or(`user_a.eq.${userId},user_b.eq.${userId}`)
 
-    const friendList = (fships ?? []).map(f => ({
+    setFriends((fships ?? []).map(f => ({
       friendshipId: f.id,
       ...(f.user_a === userId ? f.profile_b : f.profile_a)
-    }))
-    setFriends(friendList)
+    })))
 
-    // Pending requests
     const { data: reqs } = await supabase
       .from('friend_requests')
       .select(`
@@ -59,62 +68,31 @@ export default function Friends({ userId, onRequestsChange }) {
       .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
       .eq('status', 'pending')
 
-    const incoming = (reqs ?? []).filter(r => r.to_user?.id === userId || r.to_user_id === userId)
-    const outgoing = (reqs ?? []).filter(r => r.from_user?.id === userId || r.from_user_id === userId)
-    setRequests({ incoming, outgoing })
-    onRequestsChange?.(incoming.length)
+    setRequests({
+      incoming: (reqs ?? []).filter(r => r.to_user?.id === userId),
+      outgoing: (reqs ?? []).filter(r => r.from_user?.id === userId),
+    })
 
-    // Friend groups
     const { data: fgroups } = await supabase
       .from('friend_groups')
-      .select(`*, members:friend_group_members(friend_id)`)
+      .select('*, members:friend_group_members(friend_id)')
       .eq('owner_id', userId)
     setFriendGroups(fgroups ?? [])
   }
-
-  const fetchFriendsLists = async () => {
-    if (friends.length === 0) { setFriendsLists([]); return }
-    setLoadingLists(true)
-    const friendIds = friends.map(f => f.id)
-
-    // Fetch lists visible to us from friends (friends-visibility or public)
-    const { data } = await supabase
-      .from('list_groups')
-      .select(`
-        *,
-        owner:profiles!list_groups_owner_id_fkey(id, username, display_name, avatar_url)
-      `)
-      .in('owner_id', friendIds)
-      .in('visibility', ['friends', 'public'])
-      .order('created_at', { ascending: false })
-
-    setFriendsLists(data ?? [])
-    setLoadingLists(false)
-  }
-
-  // Load friends' lists when tab is opened
-  useEffect(() => {
-    if (tab === 'lists') fetchFriendsLists()
-  }, [tab, friends])
 
   const searchUsers = async (q) => {
     if (!q.trim()) { setSearchResults([]); return }
     setSearching(true)
     const { data } = await supabase
-      .from('profiles')
-      .select('id, username, display_name, avatar_url')
-      .neq('id', userId)
-      .ilike('username', `%${q}%`)
-      .limit(8)
+      .from('profiles').select('id, username, display_name, avatar_url')
+      .neq('id', userId).ilike('username', `%${q}%`).limit(8)
     setSearchResults(data ?? [])
     setSearching(false)
   }
 
   const sendRequest = async (toUserId) => {
     await supabase.from('friend_requests').insert({ from_user_id: userId, to_user_id: toUserId })
-    await supabase.from('notifications').insert({
-      user_id: toUserId, from_user_id: userId, type: 'friend_request'
-    })
+    await supabase.from('notifications').insert({ user_id: toUserId, from_user_id: userId, type: 'friend_request' })
     fetchAll()
     setSearch('')
     setSearchResults([])
@@ -122,10 +100,7 @@ export default function Friends({ userId, onRequestsChange }) {
 
   const acceptRequest = async (request) => {
     await supabase.from('friend_requests').update({ status: 'accepted' }).eq('id', request.id)
-    await supabase.from('friendships').insert({
-      user_a: request.from_user.id,
-      user_b: userId
-    })
+    await supabase.from('friendships').insert({ user_a: request.from_user.id, user_b: userId })
     await supabase.from('notifications').insert({
       user_id: request.from_user.id, from_user_id: userId, type: 'friend_accepted'
     })
@@ -137,9 +112,37 @@ export default function Friends({ userId, onRequestsChange }) {
     fetchAll()
   }
 
-  const removeFriend = async (friendshipId) => {
-    if (!confirm('Remove this friend?')) return
-    await supabase.from('friendships').delete().eq('id', friendshipId)
+  const removeFriend = async (friend) => {
+    if (!confirm(`Remove ${friend.display_name || friend.username} as a friend?`)) return
+
+    // Delete the friendship row on both sides (unique constraint means one row covers both)
+
+console.log('current user:', userId)
+console.log('friend:', friend)
+console.log('friend.id:', friend.id)
+
+const { data, error } = await supabase
+  .from('friendships')
+  .select('*')
+  .eq('id', friend.friendshipId)
+
+console.log('deleted:', data)
+console.log('error:', error)
+
+    // Also clean up any pending friend requests between the two users
+    await supabase.from('friend_requests')
+      .delete()
+      .or(
+        `and(from_user_id.eq.${userId},to_user_id.eq.${friend.id}),and(from_user_id.eq.${friend.id},to_user_id.eq.${userId})`
+      )
+
+    // Notify the removed user
+    await supabase.from('notifications').insert({
+      user_id: friend.id,
+      from_user_id: userId,
+      type: 'friend_removed',
+    })
+
     fetchAll()
   }
 
@@ -153,8 +156,7 @@ export default function Friends({ userId, onRequestsChange }) {
 
   const toggleFriendInGroup = async (groupId, friendId, isInGroup) => {
     if (isInGroup) {
-      await supabase.from('friend_group_members')
-        .delete().eq('group_id', groupId).eq('friend_id', friendId)
+      await supabase.from('friend_group_members').delete().eq('group_id', groupId).eq('friend_id', friendId)
     } else {
       await supabase.from('friend_group_members').insert({ group_id: groupId, friend_id: friendId })
     }
@@ -194,19 +196,30 @@ export default function Friends({ userId, onRequestsChange }) {
         </div>
       </div>
 
-      {/* Search bar — shown on all tabs except lists */}
-      {tab !== 'lists' && (
-        <div className="search-bar">
-          <input
-            value={search}
-            onChange={e => { setSearch(e.target.value); searchUsers(e.target.value) }}
-            placeholder="Search users by username…"
-          />
-          {searching && <span className="search-spinner">…</span>}
+      {/* Friend removal alerts */}
+      {removedAlerts.length > 0 && (
+        <div className="removed-alerts">
+          {removedAlerts.map(alert => (
+            <div key={alert.id} className="removed-alert">
+              <span>
+                @{alert.from_user?.username || 'someone'} has removed you as a friend.
+              </span>
+              <button className="removed-alert-dismiss" onClick={() => dismissAlert(alert.id)}>✕</button>
+            </div>
+          ))}
         </div>
       )}
 
-      {searchResults.length > 0 && tab !== 'lists' && (
+      <div className="search-bar">
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); searchUsers(e.target.value) }}
+          placeholder="Search users by username…"
+        />
+        {searching && <span className="search-spinner">…</span>}
+      </div>
+
+      {searchResults.length > 0 && (
         <ul className="search-results">
           {searchResults.map(user => (
             <li key={user.id} className="search-result-item">
@@ -235,7 +248,7 @@ export default function Friends({ userId, onRequestsChange }) {
                 <span className="display-name">{friend.display_name || friend.username}</span>
                 <span className="username-tag">@{friend.username}</span>
               </div>
-              <button className="btn-ghost-sm" onClick={() => removeFriend(friend.friendshipId)}>Remove</button>
+              <button className="btn-ghost-sm" onClick={() => removeFriend(friend)}>Remove</button>
             </li>
           ))}
           {friends.length === 0 && <p className="empty-state">No friends yet — search above to add some.</p>}
