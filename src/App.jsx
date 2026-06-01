@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from './supabaseClient'
 import { AudioProvider } from './context/AudioContext'
 import { NotificationProvider } from './context/NotificationContext'
@@ -19,6 +19,13 @@ function AppShell({ session }) {
   const [listGroups, setListGroups] = useState([])
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [currentView, setCurrentView] = useState('my-todos')
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Per-list notification counts (nudges + overdue)
+  const [listNudgeCounts, setListNudgeCounts]   = useState({}) // { groupId: n }
+  const [listOverdueCounts, setListOverdueCounts] = useState({}) // { groupId: n }
+  // Track which lists the user has opened (clears their badges)
+  const [openedLists, setOpenedLists] = useState(new Set())
 
   useEffect(() => {
     supabase.from('profiles').select('*').eq('id', session.user.id).single()
@@ -46,6 +53,54 @@ function AppShell({ session }) {
     return () => supabase.removeChannel(sub)
   }, [profile])
 
+  // Compute per-list nudge counts and overdue counts
+  const refreshListNotifs = useCallback(async (groups) => {
+    if (!groups || groups.length === 0) return
+    const groupIds = groups.map(g => g.id)
+
+    // Nudge counts: unread nudge notifications for each list
+    const { data: nudgeNotifs } = await supabase
+      .from('notifications')
+      .select('entity_id')
+      .eq('user_id', profile?.id)
+      .eq('type', 'nudge')
+      .eq('read', false)
+      .not('entity_id', 'is', null)
+    // entity_id is a todo id; map back to group
+    if (nudgeNotifs && nudgeNotifs.length) {
+      const todoIds = nudgeNotifs.map(n => n.entity_id)
+      const { data: todos } = await supabase.from('todos').select('id, group_id').in('id', todoIds)
+      const counts = {}
+      ;(todos ?? []).forEach(t => {
+        if (groupIds.includes(t.group_id)) counts[t.group_id] = (counts[t.group_id] || 0) + 1
+      })
+      setListNudgeCounts(counts)
+    } else {
+      setListNudgeCounts({})
+    }
+
+    // Overdue counts
+    const now = new Date().toISOString()
+    const { data: overdueTodos } = await supabase
+      .from('todos')
+      .select('id, group_id')
+      .in('group_id', groupIds)
+      .eq('is_complete', false)
+      .not('due_date', 'is', null)
+      .lt('due_date', now)
+    const overdueCounts = {}
+    ;(overdueTodos ?? []).forEach(t => {
+      overdueCounts[t.group_id] = (overdueCounts[t.group_id] || 0) + 1
+    })
+    setListOverdueCounts(overdueCounts)
+  }, [profile?.id])
+
+  useEffect(() => {
+    if (listGroups.length > 0 && profile) refreshListNotifs(listGroups)
+  }, [listGroups, profile, refreshKey])
+
+  const handleRefresh = () => setRefreshKey(k => k + 1)
+
   const handleGroupUpdate = (updated) => {
     if (!updated) {
       setListGroups(prev => prev.filter(g => g.id !== selectedGroup?.id))
@@ -61,6 +116,10 @@ function AppShell({ session }) {
     const { data } = await supabase.from('list_groups')
       .update({ pinned: !group.pinned }).eq('id', group.id).select().single()
     if (data) setListGroups(prev => prev.map(g => g.id === data.id ? data : g))
+  }
+
+  const handleOpenList = (groupId) => {
+    setOpenedLists(prev => new Set([...prev, groupId]))
   }
 
   if (loading) return <div className="loading">Loading…</div>
@@ -82,11 +141,16 @@ function AppShell({ session }) {
             setCurrentView(v)
             if (v !== 'list' && v !== 'friend-list') setSelectedGroup(null)
           }}
+          listNudgeCounts={listNudgeCounts}
+          listOverdueCounts={listOverdueCounts}
+          openedLists={openedLists}
+          onOpenList={handleOpenList}
+          onRefresh={handleRefresh}
         />
         <main className="main-content">
           {(currentView === 'list' || currentView === 'friend-list') && selectedGroup && (
             <TodoList
-              key={selectedGroup.id}
+              key={selectedGroup.id + '-' + refreshKey}
               group={selectedGroup}
               userId={profile.id}
               readOnly={isReadOnly}
@@ -96,7 +160,11 @@ function AppShell({ session }) {
           {currentView === 'my-todos' && (
             <MyTasksHome
               listGroups={listGroups}
-              onSelectGroup={(g) => { setSelectedGroup(g); setCurrentView('list') }}
+              onSelectGroup={(g) => {
+                setSelectedGroup(g)
+                setCurrentView('list')
+                handleOpenList(g.id)
+              }}
               onTogglePin={handleTogglePin}
               onGroupCreated={(g) => {
                 setListGroups(prev => [...prev, g].sort((a, b) => a.position - b.position))

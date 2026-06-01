@@ -12,10 +12,10 @@ const VISIBILITY_OPTIONS = [
 ]
 
 const STATUS_OPTIONS = [
-  { value: 'not_started', label: 'Not Started', color: '#e53e3e', bg: '#ffffff' },
-  { value: 'in_progress', label: 'In Progress', color: '#d69e2e', bg: '#ffffff' },
-  { value: 'paused',      label: 'Paused',      color: '#3182ce', bg: '#ffffff' },
-  { value: 'done',        label: 'Done',        color: '#38a169', bg: '#ffffff' },
+  { value: 'not_started', label: 'Not Started', color: '#e53e3e' },
+  { value: 'in_progress', label: 'In Progress', color: '#d69e2e' },
+  { value: 'paused',      label: 'Paused',      color: '#3182ce' },
+  { value: 'done',        label: 'Done',        color: '#38a169' },
 ]
 
 function statusForTodo(todo) {
@@ -43,8 +43,64 @@ function formatDueDate(dateStr) {
   return { label, isOverdue, isSoon: !isOverdue && (d - now) < 86400000 * 2 }
 }
 
-// ── Nudge tooltip (who nudged) ────────────────────────────────────────────
-function NudgeTooltip({ todoId, count, myUserId, hasNudged, onNudge, onRemoveNudge }) {
+function defaultGradient(seed = '') {
+  const h1 = (((seed.charCodeAt(0) || 0) * 37) + ((seed.charCodeAt(1) || 0) * 13)) % 360
+  const h2 = (h1 + 60) % 360
+  return `linear-gradient(135deg, hsl(${h1},55%,72%), hsl(${h2},60%,62%))`
+}
+
+// ── Status bubble with dropdown ───────────────────────────────────────────
+function StatusBubble({ status, onChange, readOnly, isComplete }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  const st = STATUS_OPTIONS.find(s => s.value === (isComplete ? 'done' : (status || 'not_started'))) || STATUS_OPTIONS[0]
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  if (readOnly || isComplete) {
+    return (
+      <span className="todo-status-pill" style={{ color: st.color, borderColor: st.color + '55' }}>
+        {st.label}
+      </span>
+    )
+  }
+
+  return (
+    <div className="status-bubble-wrap" ref={ref}>
+      <span
+        className="todo-status-pill"
+        style={{ color: st.color, borderColor: st.color + '55', cursor: 'pointer' }}
+        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        title="Change status"
+      >
+        {st.label} ▾
+      </span>
+      {open && (
+        <div className="status-dropdown">
+          {STATUS_OPTIONS.filter(s => s.value !== 'done').map(opt => (
+            <button
+              key={opt.value}
+              className={`status-dropdown-opt ${st.value === opt.value ? 'active' : ''}`}
+              style={{ '--st-color': opt.color }}
+              onClick={e => { e.stopPropagation(); onChange(opt.value); setOpen(false) }}
+            >
+              <span className="status-dot" style={{ background: opt.color }} />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Nudge tooltip ────────────────────────────────────────────────────────
+function NudgeTooltip({ todoId, count }) {
   const [open, setOpen] = useState(false)
   const [nudgers, setNudgers] = useState([])
   const ref = useRef()
@@ -95,8 +151,8 @@ function NudgeTooltip({ todoId, count, myUserId, hasNudged, onNudge, onRemoveNud
 
 export default function TodoList({ group, userId, onGroupUpdate, readOnly = false }) {
   const [todos, setTodos] = useState([])
-  const [nudgeCounts, setNudgeCounts] = useState({}) // { todoId: count }
-  const [nudgedByMe, setNudgedByMe] = useState(new Set()) // todoIds I've nudged
+  const [nudgeCounts, setNudgeCounts] = useState({})
+  const [nudgedByMe, setNudgedByMe] = useState(new Set())
   const [newTitle, setNewTitle] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
   const [newStatus, setNewStatus] = useState('not_started')
@@ -110,12 +166,13 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
   const [selectedTodo, setSelectedTodo] = useState(null)
   const [allGroups, setAllGroups] = useState([])
   const [friendGroups, setFriendGroups] = useState([])
-  const [groupVisibilityShares, setGroupVisibilityShares] = useState([]) // which friend_group ids are selected
+  const [groupVisibilityShares, setGroupVisibilityShares] = useState([])
   const [showAddForm, setShowAddForm] = useState(false)
   const dragItem = useRef(null)
   const visible = useFadeIn([group.id])
   const { prefs, addCustomToast, markRead, notifications } = useNotifications()
   const { playNudge } = useAudio()
+  const dateRef = useRef()
 
   // Clear task-related notifications when this list is opened
   useEffect(() => {
@@ -163,9 +220,7 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
     supabase.from('list_group_shares').select('friend_group_id').eq('list_group_id', group.id)
       .then(({ data }) => setGroupVisibilityShares((data ?? []).map(r => r.friend_group_id)))
 
-    // Polling fallback instead of realtime (no paid plan needed)
-    const pollInterval = setInterval(fetchData, 8000)
-    return () => clearInterval(pollInterval)
+    // No more 8s polling — refresh is manual via the sidebar refresh button
   }, [group.id, fetchData])
 
   // Due date toast checker
@@ -191,7 +246,7 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
       user_id: userId, group_id: group.id,
       title: newTitle.trim(),
       position: maxPos + 1,
-      status: newStatus,
+      status: newStatus || 'not_started',
       due_date: newDueDate || null,
     })
     setNewTitle(''); setNewDueDate(''); setNewStatus('not_started')
@@ -207,7 +262,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
     }).eq('id', todo.id)
 
     if (newComplete && prefs?.nudged_task_completed) {
-      // Get unique nudgers for this todo
       const { data: nudgers } = await supabase.from('nudges')
         .select('from_user_id').eq('todo_id', todo.id)
       const uniqueNudgers = [...new Set((nudgers ?? []).map(n => n.from_user_id).filter(Boolean))]
@@ -222,7 +276,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
 
   const updateTodoField = async (todoId, fields) => {
     await supabase.from('todos').update(fields).eq('id', todoId)
-    // Update local state immediately for responsiveness
     setTodos(prev => prev.map(t => t.id === todoId ? { ...t, ...fields } : t))
     setSelectedTodo(prev => prev?.id === todoId ? { ...prev, ...fields } : prev)
   }
@@ -243,18 +296,14 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
     setSelectedTodo(null)
   }
 
-  // Toggle nudge — add if not nudged, remove if already nudged
   const handleNudge = async (todo, e) => {
     e?.stopPropagation()
     if (nudgedByMe.has(todo.id)) {
-      // Remove nudge
       await supabase.from('nudges').delete().eq('todo_id', todo.id).eq('from_user_id', userId)
       setNudgedByMe(prev => { const s = new Set(prev); s.delete(todo.id); return s })
       setNudgeCounts(prev => ({ ...prev, [todo.id]: Math.max((prev[todo.id] || 1) - 1, 0) }))
     } else {
-      // Add nudge
       await supabase.from('nudges').insert({ todo_id: todo.id, from_user_id: userId })
-      // Send notification to list owner
       if (group.owner_id !== userId) {
         await supabase.from('notifications').insert({
           user_id: group.owner_id, from_user_id: userId, type: 'nudge', entity_id: todo.id,
@@ -294,13 +343,11 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
       cover_url = urlData.publicUrl
     }
     // Sync group-visibility shares
-    if (groupVisibility === 'groups') {
-      await supabase.from('list_group_shares').delete().eq('list_group_id', group.id)
-      if (groupVisibilityShares.length) {
-        await supabase.from('list_group_shares').insert(
-          groupVisibilityShares.map(fgId => ({ list_group_id: group.id, friend_group_id: fgId }))
-        )
-      }
+    await supabase.from('list_group_shares').delete().eq('list_group_id', group.id)
+    if (groupVisibility === 'groups' && groupVisibilityShares.length) {
+      await supabase.from('list_group_shares').insert(
+        groupVisibilityShares.map(fgId => ({ list_group_id: group.id, friend_group_id: fgId }))
+      )
     }
     const { data } = await supabase.from('list_groups')
       .update({ name: groupName, visibility: groupVisibility, cover_url })
@@ -317,46 +364,50 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
 
   if (loading) return <div className="page-loading">Loading…</div>
 
+  // Header background: cover image OR gradient
+  const headerBg = coverPreview
+    ? { backgroundImage: `url(${coverPreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : { background: defaultGradient(group.id || group.name) }
+
   return (
     <div className={`todo-page-wrapper ${selectedTodo ? 'with-detail' : ''}`}>
       <div className={`todo-page ${visible ? 'fade-in' : ''}`}>
         {/* Group header */}
         <div className="todo-header">
-          {coverPreview && !editingGroup && (
-            <div className="todo-cover" style={{ backgroundImage: `url(${coverPreview})` }} />
-          )}
-          <div className="todo-header-content">
-            {editingGroup ? (
-              <GroupEditForm
-                groupName={groupName} setGroupName={setGroupName}
-                groupVisibility={groupVisibility} setGroupVisibility={setGroupVisibility}
-                coverPreview={coverPreview} setCoverPreview={setCoverPreview} setCoverFile={setCoverFile}
-                handleCoverChange={handleCoverChange}
-                friendGroups={friendGroups}
-                groupVisibilityShares={groupVisibilityShares} setGroupVisibilityShares={setGroupVisibilityShares}
-                onSave={saveGroupSettings} onCancel={() => setEditingGroup(false)} onDelete={deleteGroup}
-              />
-            ) : (
-              <div className="group-title-row">
-                <span className="group-title-icon">{group.cover_url ? '' : (group.icon || '📋')}</span>
-                <div className="group-title-text">
-                  <h2 className="group-title">{group.name}</h2>
-                  {group.description && <p className="group-description">{group.description}</p>}
-                </div>
-                <span className="group-vis-pill">
-                  {VISIBILITY_OPTIONS.find(o => o.value === group.visibility)?.label}
-                </span>
-                {!readOnly && (
-                  <button className="icon-btn" onClick={() => setEditingGroup(true)} title="Edit list">⚙</button>
-                )}
-                {readOnly && group._friendProfile && (
-                  <span className="readonly-badge">
-                    👤 {group._friendProfile.display_name || group._friendProfile.username}'s list
+          {!editingGroup && (
+            <div className="todo-cover-hero" style={headerBg}>
+              <div className="todo-cover-overlay" />
+              <div className="todo-cover-content">
+                <span className="todo-cover-icon">{group.icon || (group.cover_url ? '' : '📋')}</span>
+                <h2 className="todo-cover-title">{group.name}</h2>
+                {group.description && <p className="todo-cover-desc">{group.description}</p>}
+                <div className="todo-cover-meta">
+                  <span className="group-vis-pill light">
+                    {VISIBILITY_OPTIONS.find(o => o.value === group.visibility)?.label}
                   </span>
-                )}
+                  {!readOnly && (
+                    <button className="icon-btn light" onClick={() => setEditingGroup(true)} title="Edit list">⚙</button>
+                  )}
+                  {readOnly && group._friendProfile && (
+                    <span className="readonly-badge light">
+                      👤 {group._friendProfile.display_name || group._friendProfile.username}'s list
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+          {editingGroup && (
+            <GroupEditForm
+              groupName={groupName} setGroupName={setGroupName}
+              groupVisibility={groupVisibility} setGroupVisibility={setGroupVisibility}
+              coverPreview={coverPreview} setCoverPreview={setCoverPreview} setCoverFile={setCoverFile}
+              handleCoverChange={handleCoverChange}
+              friendGroups={friendGroups}
+              groupVisibilityShares={groupVisibilityShares} setGroupVisibilityShares={setGroupVisibilityShares}
+              onSave={saveGroupSettings} onCancel={() => setEditingGroup(false)} onDelete={deleteGroup}
+            />
+          )}
         </div>
 
         {!editingGroup && (
@@ -368,58 +419,57 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                     + Add task
                   </button>
                 ) : (
-                  <form onSubmit={addTodo} className="add-todo-form-expanded">
-                    <input
-                      className="add-todo-title-input"
-                      value={newTitle}
-                      onChange={e => setNewTitle(e.target.value)}
-                      placeholder="Task name…"
-                      autoFocus
-                    />
-                    <div className="add-todo-meta-row">
-                      <label className="add-todo-meta-item" title="Due date">
-                        📅
-                        <input
-                          type="datetime-local"
-                          value={newDueDate}
-                          onChange={e => setNewDueDate(e.target.value)}
-                          className="add-todo-date-input"
-                        />
-                        {newDueDate
-                          ? <span className="add-todo-meta-value">
-                              {new Date(newDueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                            </span>
-                          : <span className="add-todo-meta-value muted">Due date</span>
-                        }
-                      </label>
-                      <div className="add-todo-meta-item">
-                        <select
-                          value={newStatus}
-                          onChange={e => setNewStatus(e.target.value)}
-                          className="add-todo-status-select"
-                          style={{ color: STATUS_OPTIONS.find(s => s.value === newStatus)?.color }}
-                        >
-                          {STATUS_OPTIONS.filter(s => s.value !== 'done').map(s => (
-                            <option key={s.value} value={s.value}>{s.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div className="add-todo-actions">
-                      <button type="submit" className="btn-primary-sm" disabled={!newTitle.trim()}>Add task</button>
-                      <button type="button" className="btn-ghost-sm"
-                        onClick={() => { setShowAddForm(false); setNewTitle(''); setNewDueDate(''); setNewStatus('not_started') }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
+                <form onSubmit={addTodo} className="add-todo-form-inline">
+                  <input
+                    className="add-todo-title-input"
+                    value={newTitle}
+                    onChange={e => setNewTitle(e.target.value)}
+                    placeholder="Task name…"
+                    autoFocus
+                  />
+
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={() => dateRef.current?.showPicker?.()}
+                    title="Set due date"
+                  >
+                    📅
+                  </button>
+
+                  <input
+                    ref={dateRef}
+                    type="datetime-local"
+                    value={newDueDate}
+                    onChange={e => setNewDueDate(e.target.value)}
+                    className="hidden-date-input"
+                  />
+
+                  {newDueDate && (
+                    <span className="add-todo-meta-value">
+                      {new Date(newDueDate).toLocaleString([], {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true,
+                      })}
+                    </span>
+                  )}
+                  <button
+                    type="submit"
+                    className="btn-primary-sm"
+                    disabled={!newTitle.trim()}
+                  >
+                    Add
+                  </button>
+                </form>
                 )}
               </div>
             )}
 
             <ul className="todo-list">
               {todos.map((todo, index) => {
-                const st = statusForTodo(todo)
                 const due = formatDueDate(todo.due_date)
                 const count = nudgeCounts[todo.id] || 0
                 return (
@@ -451,22 +501,18 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                     </div>
 
                     {!todo.is_complete && (
-                      <span className="todo-status-pill"
-                        style={{ color: st.color, background: st.bg }}
-                        onClick={e => e.stopPropagation()}>
-                        {st.label}
-                      </span>
+                      <StatusBubble
+                        status={todo.status || 'not_started'}
+                        isComplete={todo.is_complete}
+                        readOnly={readOnly}
+                        onChange={async (newSt) => {
+                          await updateTodoField(todo.id, { status: newSt })
+                        }}
+                      />
                     )}
 
                     {count > 0 && (
-                      <NudgeTooltip
-                        todoId={todo.id}
-                        count={count}
-                        myUserId={userId}
-                        hasNudged={nudgedByMe.has(todo.id)}
-                        onNudge={() => handleNudge(todo)}
-                        onRemoveNudge={() => handleNudge(todo)}
-                      />
+                      <NudgeTooltip todoId={todo.id} count={count} />
                     )}
 
                     {readOnly && (
@@ -511,8 +557,6 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
   friendGroups, groupVisibilityShares, setGroupVisibilityShares,
   onSave, onCancel, onDelete }) {
 
-  const [showGroupPicker, setShowGroupPicker] = useState(false)
-
   const toggleShare = (id) => {
     setGroupVisibilityShares(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -543,7 +587,7 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
         {VISIBILITY_OPTIONS.map(opt => (
           <button key={opt.value}
             className={`visibility-opt ${groupVisibility === opt.value ? 'active' : ''}`}
-            onClick={() => { setGroupVisibility(opt.value); if (opt.value === 'groups') setShowGroupPicker(true) }}>
+            onClick={() => setGroupVisibility(opt.value)}>
             <span>{opt.label}</span>
             <span className="vis-desc">{opt.desc}</span>
           </button>
@@ -556,8 +600,8 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
           <div className="fgs-header">
             <span className="fgs-label">Visible to these friend groups:</span>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn-ghost-sm" onClick={() => setGroupVisibilityShares(friendGroups.map(g => g.id))}>All</button>
-              <button className="btn-ghost-sm" onClick={() => setGroupVisibilityShares([])}>None</button>
+              <button className="btn-ghost-sm" onClick={() => setGroupVisibilityShares(friendGroups.map(g => g.id))}>Select all</button>
+              <button className="btn-ghost-sm" onClick={() => setGroupVisibilityShares([])}>Remove all</button>
             </div>
           </div>
           {friendGroups.length === 0
@@ -573,6 +617,14 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
         </div>
       )}
 
+      {/* Friends visibility - select specific friends */}
+      {groupVisibility === 'friends' && (
+        <FriendVisibilityPicker
+          ownerId={groupVisibilityShares}
+          setShares={setGroupVisibilityShares}
+        />
+      )}
+
       <div className="group-edit-actions">
         <button className="btn-primary" onClick={onSave}>Save changes</button>
         <button className="btn-ghost" onClick={onCancel}>Cancel</button>
@@ -582,7 +634,18 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
   )
 }
 
-// ── Task Detail Panel (right drawer) ────────────────────────────────────────
+// Note: FriendVisibilityPicker is currently a placeholder; the friends-based
+// visibility uses supabase RLS that checks friendships. "groups" visibility
+// uses list_group_shares. This component shows a note to the user.
+function FriendVisibilityPicker() {
+  return (
+    <p style={{ fontSize: 12, color: 'var(--text-mid)', padding: '8px 0' }}>
+      All friends can see this list. Use <strong>Groups</strong> visibility to share with specific friend groups only.
+    </p>
+  )
+}
+
+// ── Task Detail Panel ────────────────────────────────────────────────────────
 function TaskDetailPanel({ todo, readOnly, allGroups, onClose, onUpdate, onDelete, onMove, onToggle }) {
   const [title, setTitle] = useState(todo.title)
   const [description, setDescription] = useState(todo.description || '')
@@ -689,7 +752,7 @@ function TaskDetailPanel({ todo, readOnly, allGroups, onClose, onUpdate, onDelet
               <button key={opt.value}
                 disabled={readOnly || todo.is_complete}
                 className={`task-status-btn ${(status === opt.value || (todo.is_complete && opt.value === 'done')) ? 'active' : ''}`}
-                style={{ '--st-color': opt.color, '--st-bg': opt.bg }}
+                style={{ '--st-color': opt.color }}
                 onClick={() => !readOnly && !todo.is_complete && handleStatusChange(opt.value)}>
                 {opt.label}
               </button>

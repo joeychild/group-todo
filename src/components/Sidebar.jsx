@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import { useNotifications } from '../context/NotificationContext'
+import ProfileModal from './ProfileModal'
 
 function defaultGradient(seed = '') {
   const h1 = (((seed.charCodeAt(0) || 0) * 37) + ((seed.charCodeAt(1) || 0) * 13)) % 360
@@ -27,7 +28,15 @@ function ListAvatar({ group, size = 22 }) {
 
 const VISIBILITY_ICONS = { private: '🔒', friends: '👥', groups: '🫂', public: '🌐' }
 
-export default function Sidebar({ profile, userId, myLists, selectedGroup, onSelectGroup, currentView, onViewChange }) {
+export default function Sidebar({
+  profile, userId, myLists, selectedGroup,
+  onSelectGroup, currentView, onViewChange,
+  listNudgeCounts = {},   // { [groupId]: number }
+  listOverdueCounts = {}, // { [groupId]: number }
+  openedLists = new Set(), // set of groupIds whose notifs have been cleared
+  onOpenList,             // (groupId) => void  — called when a list is opened
+  onRefresh,              // () => void
+}) {
   const [friends, setFriends] = useState([])
   const [friendLists, setFriendLists] = useState({})
   const [expandedFriend, setExpandedFriend] = useState(null)
@@ -35,12 +44,56 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
   const [friendsListsOpen, setFriendsListsOpen] = useState(true)
   const { friendUnread, taskUnread, unreadCount } = useNotifications()
 
-  useEffect(() => {
+  // Profile modal state
+  const [profileModal, setProfileModal] = useState(null) // { profile, isSelf }
+  const [friendStatus, setFriendStatus] = useState('none')
+
+  const openProfileModal = async (targetProfile, isSelf) => {
+    setProfileModal({ profile: targetProfile, isSelf })
+    if (!isSelf && targetProfile?.id) {
+      // Check friendship status
+      const { data: fship } = await supabase.from('friendships')
+        .select('id').or(`and(user_a.eq.${userId},user_b.eq.${targetProfile.id}),and(user_a.eq.${targetProfile.id},user_b.eq.${userId})`)
+        .maybeSingle()
+      if (fship) { setFriendStatus('friends'); return }
+
+      const { data: sentReq } = await supabase.from('friend_requests')
+        .select('id').eq('from_user_id', userId).eq('to_user_id', targetProfile.id).eq('status', 'pending').maybeSingle()
+      if (sentReq) { setFriendStatus('pending_sent'); return }
+
+      const { data: recvReq } = await supabase.from('friend_requests')
+        .select('id').eq('from_user_id', targetProfile.id).eq('to_user_id', userId).eq('status', 'pending').maybeSingle()
+      if (recvReq) { setFriendStatus('pending_received'); return }
+
+      setFriendStatus('none')
+    }
+  }
+
+  const handleSendRequest = async () => {
+    if (!profileModal?.profile) return
+    await supabase.from('friend_requests').insert({ from_user_id: userId, to_user_id: profileModal.profile.id })
+    await supabase.from('notifications').insert({ user_id: profileModal.profile.id, from_user_id: userId, type: 'friend_request' })
+    setFriendStatus('pending_sent')
+  }
+
+  const handleRemoveFriend = async () => {
+    if (!profileModal?.profile) return
+    const { data: fship } = await supabase.from('friendships')
+      .select('id').or(`and(user_a.eq.${userId},user_b.eq.${profileModal.profile.id}),and(user_a.eq.${profileModal.profile.id},user_b.eq.${userId})`)
+      .maybeSingle()
+    if (fship) {
+      await supabase.from('friendships').delete().eq('id', fship.id)
+      await supabase.from('notifications').insert({ user_id: profileModal.profile.id, from_user_id: userId, type: 'friend_removed' })
+      setFriendStatus('none')
+    }
+  }
+
+  const fetchFriends = useCallback(() => {
     if (!userId) return
     supabase.from('friendships').select(`
       id, user_a, user_b,
-      profile_a:profiles!friendships_user_a_fkey(id, username, display_name, avatar_url),
-      profile_b:profiles!friendships_user_b_fkey(id, username, display_name, avatar_url)
+      profile_a:profiles!friendships_user_a_fkey(id, username, display_name, avatar_url, bio, banner_url),
+      profile_b:profiles!friendships_user_b_fkey(id, username, display_name, avatar_url, bio, banner_url)
     `).or(`user_a.eq.${userId},user_b.eq.${userId}`)
       .then(({ data }) => {
         setFriends((data ?? []).map(f => ({
@@ -48,28 +101,15 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
           ...(f.user_a === userId ? f.profile_b : f.profile_a),
         })))
       })
+  }, [userId])
 
-    // Realtime: update friends list when friendships change
+  useEffect(() => {
+    fetchFriends()
     const sub = supabase.channel('sidebar-friends-' + userId)
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'friendships' },
-        () => {
-          supabase.from('friendships').select(`
-            id, user_a, user_b,
-            profile_a:profiles!friendships_user_a_fkey(id, username, display_name, avatar_url),
-            profile_b:profiles!friendships_user_b_fkey(id, username, display_name, avatar_url)
-          `).or(`user_a.eq.${userId},user_b.eq.${userId}`)
-            .then(({ data }) => {
-              setFriends((data ?? []).map(f => ({
-                friendshipId: f.id,
-                ...(f.user_a === userId ? f.profile_b : f.profile_a),
-              })))
-            })
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, fetchFriends)
       .subscribe()
     return () => supabase.removeChannel(sub)
-  }, [userId])
+  }, [userId, fetchFriends])
 
   const toggleFriend = async (friend) => {
     if (expandedFriend === friend.id) { setExpandedFriend(null); return }
@@ -84,12 +124,11 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
   const isMyListsHeaderActive = currentView === 'my-todos' && !selectedGroup
   const isListActive = (id) => selectedGroup?.id === id && currentView === 'list'
   const isFriendListActive = (id) => selectedGroup?.id === id && currentView === 'friend-list'
-  const isNotifActive = currentView === 'notifications' && !selectedGroup
 
   return (
     <aside className="sidebar">
-      {/* Profile → settings */}
-      <div className="sidebar-profile" onClick={() => { onViewChange('settings'); onSelectGroup(null) }}>
+      {/* Profile row */}
+      <div className="sidebar-profile" onClick={() => openProfileModal(profile, true)}>
         <div className="sidebar-avatar">
           {profile.avatar_url
             ? <img src={profile.avatar_url} alt="" />
@@ -100,6 +139,12 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
           <span className="sidebar-display-name">{profile.display_name || profile.username}</span>
           <span className="sidebar-username">@{profile.username}</span>
         </div>
+        {/* Refresh button */}
+        <button
+          className="sidebar-refresh-btn"
+          title="Refresh"
+          onClick={e => { e.stopPropagation(); onRefresh?.() }}
+        >↺</button>
       </div>
 
       {/* Top nav */}
@@ -114,7 +159,7 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
         </button>
 
         <button
-          className={`sidebar-nav-item ${isNotifActive ? 'active' : ''}`}
+          className={`sidebar-nav-item ${currentView === 'notifications' && !selectedGroup ? 'active' : ''}`}
           onClick={() => { onViewChange('notifications'); onSelectGroup(null) }}
         >
           <span className="nav-icon">◎</span>
@@ -123,15 +168,12 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
         </button>
       </nav>
 
-      {/* ── My Lists ── */}
+      {/* My Lists */}
       <div
         className={`sidebar-section-header clickable ${isMyListsHeaderActive ? 'section-active' : ''}`}
         onClick={() => { onViewChange('my-todos'); onSelectGroup(null); if (!myListsOpen) setMyListsOpen(true) }}
       >
-        <span>
-          My Lists
-          {taskUnread > 0 && <span className="nav-badge-dot" style={{ marginLeft: 6 }}>{taskUnread}</span>}
-        </span>
+        <span>My Lists</span>
         <button className="chevron-btn" onClick={e => { e.stopPropagation(); setMyListsOpen(o => !o) }}>
           {myListsOpen ? '▾' : '▸'}
         </button>
@@ -141,23 +183,43 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
         <div className="sidebar-groups">
           {myLists.length === 0
             ? <p className="sidebar-empty">No lists yet</p>
-            : myLists.map(group => (
-                <div
-                  key={group.id}
-                  className={`sidebar-group-item ${isListActive(group.id) ? 'active' : ''}`}
-                  onClick={() => { onSelectGroup(group); onViewChange('list') }}
-                >
-                  <ListAvatar group={group} />
-                  <span className="group-name">{group.name}</span>
-                  {group.pinned && <span style={{ fontSize: 11 }}>📌</span>}
-                  <span className="group-visibility">{VISIBILITY_ICONS[group.visibility]}</span>
-                </div>
-              ))
+            : myLists.map(group => {
+                const nudges = openedLists.has(group.id) ? 0 : (listNudgeCounts[group.id] || 0)
+                const overdue = openedLists.has(group.id) ? 0 : (listOverdueCounts[group.id] || 0)
+                return (
+                  <div
+                    key={group.id}
+                    className={`sidebar-group-item ${isListActive(group.id) ? 'active' : ''}`}
+                    onClick={() => {
+                      onSelectGroup(group)
+                      onViewChange('list')
+                      onOpenList?.(group.id)
+                    }}
+                  >
+                    <ListAvatar group={group} />
+                    <span className="group-name">{group.name}</span>
+                    {group.pinned && <span style={{ fontSize: 11 }}>📌</span>}
+                    {nudges > 0 && (
+                      <span className="list-notif-dot nudge-dot" title={`${nudges} nudge${nudges !== 1 ? 's' : ''}`}>
+                        {nudges}
+                      </span>
+                    )}
+                    {overdue > 0 && (
+                      <span className="list-notif-dot overdue-dot" title={`${overdue} overdue`}>
+                        {overdue}
+                      </span>
+                    )}
+                    {nudges === 0 && overdue === 0 && (
+                      <span className="group-visibility">{VISIBILITY_ICONS[group.visibility]}</span>
+                    )}
+                  </div>
+                )
+              })
           }
         </div>
       )}
 
-      {/* ── Friends' Lists ── */}
+      {/* Friends' Lists */}
       <div
         className="sidebar-section-header clickable"
         onClick={() => setFriendsListsOpen(o => !o)}
@@ -174,16 +236,28 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
                 <div key={friend.id}>
                   <div
                     className={`sidebar-friend-header ${expandedFriend === friend.id ? 'expanded' : ''}`}
-                    onClick={() => toggleFriend(friend)}
                   >
-                    <div className="sidebar-friend-avatar">
+                    <div
+                      className="sidebar-friend-avatar"
+                      onClick={() => openProfileModal(friend, false)}
+                      style={{ cursor: 'pointer' }}
+                      title={`View ${friend.display_name || friend.username}'s profile`}
+                    >
                       {friend.avatar_url
                         ? <img src={friend.avatar_url} alt="" />
                         : <span>{(friend.display_name || friend.username)[0].toUpperCase()}</span>
                       }
                     </div>
-                    <span className="sidebar-friend-name">{friend.display_name || friend.username}</span>
-                    <span className="section-chevron">{expandedFriend === friend.id ? '▾' : '▸'}</span>
+                    <span
+                      className="sidebar-friend-name"
+                      onClick={() => openProfileModal(friend, false)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {friend.display_name || friend.username}
+                    </span>
+                    <span className="section-chevron" onClick={() => toggleFriend(friend)} style={{ cursor: 'pointer' }}>
+                      {expandedFriend === friend.id ? '▾' : '▸'}
+                    </span>
                   </div>
                   {expandedFriend === friend.id && (
                     <div className="sidebar-friend-lists">
@@ -212,6 +286,20 @@ export default function Sidebar({ profile, userId, myLists, selectedGroup, onSel
               ))
           }
         </div>
+      )}
+
+      {/* Profile Modal */}
+      {profileModal && (
+        <ProfileModal
+          profile={profileModal.profile}
+          currentUserId={userId}
+          isSelf={profileModal.isSelf}
+          onClose={() => setProfileModal(null)}
+          onGoSettings={() => { setProfileModal(null); onViewChange('settings'); onSelectGroup(null) }}
+          friendStatus={friendStatus}
+          onSendRequest={handleSendRequest}
+          onRemoveFriend={handleRemoveFriend}
+        />
       )}
     </aside>
   )

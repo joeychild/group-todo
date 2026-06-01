@@ -427,6 +427,12 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 }
 .add-todo-form button:hover { opacity: 0.8; }
 
+.add-todo-form-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* spacing between elements */
+}
+
 /* ── Todo list ── */
 .todo-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
 
@@ -1370,20 +1376,57 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 .add-todo-title-input:focus { outline: none; }
 .add-todo-title-input::placeholder { color: var(--text-light); font-weight: 400; }
 
-.add-todo-meta-row {
-  display: flex; align-items: center; gap: 0;
+/* .add-todo-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   border-bottom: 1px solid var(--border);
+  padding: 6px 10px;
+  flex-wrap: nowrap;
+} */
+ .add-todo-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .add-todo-meta-item {
   display: flex; align-items: center; gap: 6px;
   padding: 8px 14px; cursor: pointer; position: relative;
   font-size: 13px; color: var(--text-mid);
-  border-right: 1px solid var(--border);
+    border-right: none;   /* ❌ remove rigid separators */
+  border-radius: 6px;
 }
-.add-todo-date-input {
+
+.add-todo-meta-item:hover {
+  background: var(--hover);
+}
+
+/* .add-todo-date-input {
   position: absolute; opacity: 0; inset: 0;
   cursor: pointer; width: 100%; border: none; padding: 0;
+} */
+
+.add-todo-date-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
 }
+
+.hidden-date-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .add-todo-meta-value { font-size: 12px; white-space: nowrap; }
 .add-todo-meta-value.muted { color: var(--text-light); }
 .add-todo-status-select {
@@ -1392,9 +1435,16 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 }
 .add-todo-status-select:focus { outline: none; }
 
-.add-todo-actions {
+/* .add-todo-actions {
   display: flex; gap: 8px; align-items: center;
   padding: 10px 14px;
+} */
+ .add-todo-actions-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  justify-content: flex-end;
 }
 
 /* ── Friend group share picker (in list edit) ── */
@@ -1442,3 +1492,250 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 .page, .todo-page, .my-tasks-home {
   transition: opacity 0.15s ease;
 }
+
+/* ═══════════════════════════════════════════════
+   FEATURE UPDATE STYLES
+   ═══════════════════════════════════════════════ */
+
+/* ── Sidebar: refresh button ── */
+.sidebar-refresh-btn {
+  margin-left: auto; flex-shrink: 0;
+  background: none; border: none;
+  color: var(--text-light); font-size: 16px;
+  padding: 3px 6px; border-radius: var(--radius);
+  cursor: pointer; line-height: 1;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.sidebar-refresh-btn:hover { color: var(--accent); background: var(--accent-bg); }
+
+/* ── Per-list notification dots ── */
+.list-notif-dot {
+  min-width: 17px; height: 17px;
+  font-size: 9px; font-weight: 700; font-family: var(--font-mono);
+  padding: 0 4px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; line-height: 1;
+}
+.nudge-dot {
+  background: var(--nudge-bg); color: var(--nudge);
+  border: 1px solid #f0d5a8;
+}
+.overdue-dot {
+  background: var(--danger-bg); color: var(--danger);
+  border: 1px solid #f5c6c2;
+}
+
+/* ── Profile Modal ── */
+.profile-modal-backdrop { z-index: 300; }
+
+.profile-modal-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%; max-width: 400px;
+  overflow: hidden;
+  box-shadow: 0 16px 64px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.1);
+  animation: fadeUp 0.22s cubic-bezier(0.22,1,0.36,1);
+  position: relative;
+}
+
+.profile-modal-banner {
+  height: 120px;
+  position: relative;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  padding: 12px;
+}
+
+.profile-modal-close {
+  background: rgba(0,0,0,0.35); border: none; color: white;
+  width: 28px; height: 28px; border-radius: 50%;
+  font-size: 12px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: background var(--t-fast); flex-shrink: 0;
+  position: relative; z-index: 2;
+}
+.profile-modal-close:hover { background: rgba(0,0,0,0.55); }
+
+.profile-modal-avatar-wrap {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  padding: 0 20px;
+  margin-top: -38px;
+  position: relative; z-index: 1;
+}
+
+.profile-modal-avatar {
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 3px solid var(--surface);
+  background: var(--accent-bg);
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 700; color: var(--accent);
+  flex-shrink: 0;
+}
+.profile-modal-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.profile-modal-gear {
+  background: var(--bg2); border: 1px solid var(--border);
+  color: var(--text-mid); border-radius: 50%;
+  width: 32px; height: 32px; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: color var(--t-fast), border-color var(--t-fast);
+  margin-bottom: 4px;
+}
+.profile-modal-gear:hover { color: var(--text); border-color: var(--text-mid); }
+
+.profile-modal-body {
+  padding: 12px 20px 20px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.profile-modal-names { display: flex; flex-direction: column; gap: 2px; }
+.profile-modal-display {
+  font-family: var(--font-serif); font-size: 20px; font-weight: 600;
+  letter-spacing: -0.02em; color: var(--text);
+}
+.profile-modal-username {
+  font-size: 13px; font-family: var(--font-mono); color: var(--text-light);
+}
+.profile-modal-bio {
+  font-size: 13px; color: var(--text-mid); line-height: 1.55;
+  padding: 6px 0;
+}
+.profile-modal-actions { display: flex; gap: 8px; padding-top: 4px; }
+
+/* ── Settings: profile banner ── */
+.profile-banner-preview {
+  height: 110px;
+  position: relative;
+  display: flex; align-items: flex-end;
+  padding: 12px 16px;
+}
+.profile-banner-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.3) 0%, transparent 60%);
+  pointer-events: none;
+}
+.profile-banner-controls {
+  position: relative; z-index: 1;
+  display: flex; gap: 8px; align-items: center;
+}
+
+/* ── TodoList: gradient/image hero header ── */
+.todo-cover-hero {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  min-height: 130px;
+  position: relative;
+  display: flex; align-items: flex-end;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.todo-cover-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.1) 60%, transparent 100%);
+  pointer-events: none;
+}
+.todo-cover-content {
+  position: relative; z-index: 1;
+  padding: 14px 20px 16px;
+  display: flex; flex-direction: column; gap: 3px; width: 100%;
+}
+.todo-cover-icon { font-size: 22px; line-height: 1; }
+.todo-cover-title {
+  font-family: var(--font-serif); font-size: 22px; font-weight: 700;
+  color: white; text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+  letter-spacing: -0.02em; line-height: 1.2;
+}
+.todo-cover-desc {
+  font-size: 13px; color: rgba(255,255,255,0.75);
+}
+.todo-cover-meta {
+  display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap;
+}
+.group-vis-pill.light {
+  font-size: 11px; color: rgba(255,255,255,0.85);
+  background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.2);
+  padding: 2px 10px; border-radius: 999px;
+}
+.icon-btn.light {
+  color: rgba(255,255,255,0.75); font-size: 15px;
+  background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.2);
+  padding: 3px 8px; border-radius: var(--radius);
+}
+.icon-btn.light:hover { color: white; background: rgba(0,0,0,0.42); }
+.readonly-badge.light {
+  font-size: 11px; color: rgba(255,255,255,0.85);
+  background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.2);
+  padding: 3px 10px; border-radius: 999px;
+}
+
+/* ── Status bubble dropdown ── */
+.status-bubble-wrap { position: relative; display: inline-flex; align-items: center; }
+.status-dropdown {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  background: var(--surface); border: 1px solid var(--border-mid);
+  border-radius: var(--radius-lg); padding: 4px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.14);
+  z-index: 50; min-width: 140px;
+  animation: fadeUp 0.12s ease;
+}
+.status-dropdown-opt {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px; border: none;
+  background: transparent; cursor: pointer;
+  font-size: 12px; font-weight: 500; color: var(--text);
+  border-radius: var(--radius); text-align: left;
+  transition: background var(--t-fast);
+}
+.status-dropdown-opt:hover { background: var(--bg2); }
+.status-dropdown-opt.active { color: var(--st-color); background: var(--bg2); }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* ── Friends: inline tab notifications ── */
+.tab-notifs {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-bottom: 16px;
+}
+.tab-notif {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 14px; border-radius: var(--radius);
+  font-size: 13px; gap: 12px;
+  animation: fadeUp 0.2s ease;
+}
+.tab-notif-friend_request, .tab-notif-friend_accepted {
+  background: var(--accent-bg); border: 1px solid var(--accent-mid); color: var(--accent);
+}
+.tab-notif-friend_removed {
+  background: var(--danger-bg); border: 1px solid #f5c6c2; color: var(--danger);
+}
+.tab-notif-friend_list_created {
+  background: var(--nudge-bg); border: 1px solid #f0d5a8; color: var(--nudge);
+}
+.tab-notif-dismiss {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  opacity: 0.6; font-size: 12px; border-radius: var(--radius);
+  color: inherit; flex-shrink: 0; transition: opacity var(--t-fast);
+}
+.tab-notif-dismiss:hover { opacity: 1; }
+
+/* ── Main content: tighter padding so content fills screen ── */
+.main-content {
+  padding: 32px 40px;
+}
+
+/* ── Todo page: fits viewport better ── */
+.todo-page { max-width: 600px; padding-top: 8px; }
+.page { max-width: 620px; }
+.my-tasks-home { max-width: 660px; }
+
+/* ── Sidebar: slightly narrower to give content more space ── */
+:root { --sidebar-w: 300px; }
+.sidebar-display-name { font-size: 15px; }
+.sidebar-username     { font-size: 13px; }
+.sidebar-nav-item     { font-size: 14px; }
+.nav-icon             { font-size: 14px; }
+.sidebar-section-header { font-size: 11px; }
+.sidebar-group-item   { padding: 6px 8px; }
+.group-name           { font-size: 13px; }
+.sidebar-empty        { font-size: 12px; }
+.sidebar-friend-name  { font-size: 12px; }
