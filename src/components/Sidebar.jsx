@@ -28,43 +28,74 @@ function ListAvatar({ group, size = 22 }) {
 
 const VISIBILITY_ICONS = { private: '🔒', friends: '👥', groups: '🫂', public: '🌐' }
 
+// Banner crossfade avatar row — used for both the self profile and friend rows
+function BannerFadeRow({ profile, size = 32, children, onClick, className = '' }) {
+  const bannerUrl = profile?.banner_url
+  const gradientBg = defaultGradient(profile?.id || profile?.username || '')
+
+  return (
+    <div className={`banner-fade-row ${className}`} onClick={onClick}>
+      {/* Left: banner crossfade strip */}
+      <div className="bfr-strip" aria-hidden="true">
+        {/* Layer 1: sidebar bg color */}
+        <div className="bfr-base" />
+        {/* Layer 2: banner/gradient fading in from left */}
+        <div
+          className="bfr-banner"
+          style={bannerUrl
+            ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center top' }
+            : { background: gradientBg }
+          }
+        />
+        {/* Layer 3: fade mask — left=transparent, right=sidebar-bg */}
+        <div className="bfr-mask" />
+      </div>
+      {/* Avatar sits on top */}
+      <div className="bfr-avatar" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+        background: 'var(--accent-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: size * 0.42, fontWeight: 600, color: 'var(--accent)', position: 'relative', zIndex: 1 }}>
+        {profile?.avatar_url
+          ? <img src={profile.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <span>{(profile?.display_name || profile?.username || '?')[0].toUpperCase()}</span>
+        }
+      </div>
+      {children}
+    </div>
+  )
+}
+
 export default function Sidebar({
   profile, userId, myLists, selectedGroup,
   onSelectGroup, currentView, onViewChange,
-  listNudgeCounts = {},   // { [groupId]: number }
-  listOverdueCounts = {}, // { [groupId]: number }
-  openedLists = new Set(), // set of groupIds whose notifs have been cleared
-  onOpenList,             // (groupId) => void  — called when a list is opened
-  onRefresh,              // () => void
+  listNudgeCounts = {},
+  listOverdueCounts = {},
+  openedLists = new Set(),
+  onOpenList,
+  onRefresh,
 }) {
   const [friends, setFriends] = useState([])
   const [friendLists, setFriendLists] = useState({})
   const [expandedFriend, setExpandedFriend] = useState(null)
   const [myListsOpen, setMyListsOpen] = useState(true)
   const [friendsListsOpen, setFriendsListsOpen] = useState(true)
-  const { friendUnread, taskUnread, unreadCount } = useNotifications()
+  const { friendUnread, taskUnread, unreadCount, fetchNotifications } = useNotifications()
 
-  // Profile modal state
-  const [profileModal, setProfileModal] = useState(null) // { profile, isSelf }
+  const [profileModal, setProfileModal] = useState(null)
   const [friendStatus, setFriendStatus] = useState('none')
 
   const openProfileModal = async (targetProfile, isSelf) => {
     setProfileModal({ profile: targetProfile, isSelf })
     if (!isSelf && targetProfile?.id) {
-      // Check friendship status
       const { data: fship } = await supabase.from('friendships')
         .select('id').or(`and(user_a.eq.${userId},user_b.eq.${targetProfile.id}),and(user_a.eq.${targetProfile.id},user_b.eq.${userId})`)
         .maybeSingle()
       if (fship) { setFriendStatus('friends'); return }
-
       const { data: sentReq } = await supabase.from('friend_requests')
         .select('id').eq('from_user_id', userId).eq('to_user_id', targetProfile.id).eq('status', 'pending').maybeSingle()
       if (sentReq) { setFriendStatus('pending_sent'); return }
-
       const { data: recvReq } = await supabase.from('friend_requests')
         .select('id').eq('from_user_id', targetProfile.id).eq('to_user_id', userId).eq('status', 'pending').maybeSingle()
       if (recvReq) { setFriendStatus('pending_received'); return }
-
       setFriendStatus('none')
     }
   }
@@ -127,25 +158,23 @@ export default function Sidebar({
 
   return (
     <aside className="sidebar">
-      {/* Profile row */}
-      <div className="sidebar-profile" onClick={() => openProfileModal(profile, true)}>
-        <div className="sidebar-avatar">
-          {profile.avatar_url
-            ? <img src={profile.avatar_url} alt="" />
-            : <span>{(profile.display_name || profile.username)[0].toUpperCase()}</span>
-          }
-        </div>
+      {/* Profile row with banner crossfade */}
+      <BannerFadeRow
+        profile={profile}
+        size={32}
+        className="sidebar-profile"
+        onClick={() => openProfileModal(profile, true)}
+      >
         <div className="sidebar-profile-info">
           <span className="sidebar-display-name">{profile.display_name || profile.username}</span>
           <span className="sidebar-username">@{profile.username}</span>
         </div>
-        {/* Refresh button */}
         <button
           className="sidebar-refresh-btn"
           title="Refresh"
-          onClick={e => { e.stopPropagation(); onRefresh?.() }}
+          onClick={e => { e.stopPropagation(); onRefresh?.(); fetchNotifications?.() }}
         >↺</button>
-      </div>
+      </BannerFadeRow>
 
       {/* Top nav */}
       <nav className="sidebar-nav">
@@ -234,31 +263,28 @@ export default function Sidebar({
             ? <p className="sidebar-empty">Add friends to see their lists</p>
             : friends.map(friend => (
                 <div key={friend.id}>
-                  <div
+                  {/* Friend row with banner crossfade */}
+                  <BannerFadeRow
+                    profile={friend}
+                    size={22}
                     className={`sidebar-friend-header ${expandedFriend === friend.id ? 'expanded' : ''}`}
                   >
-                    <div
-                      className="sidebar-friend-avatar"
-                      onClick={() => openProfileModal(friend, false)}
-                      style={{ cursor: 'pointer' }}
-                      title={`View ${friend.display_name || friend.username}'s profile`}
-                    >
-                      {friend.avatar_url
-                        ? <img src={friend.avatar_url} alt="" />
-                        : <span>{(friend.display_name || friend.username)[0].toUpperCase()}</span>
-                      }
-                    </div>
                     <span
                       className="sidebar-friend-name"
                       onClick={() => openProfileModal(friend, false)}
-                      style={{ cursor: 'pointer' }}
+                      style={{ cursor: 'pointer', flex: 1 }}
                     >
                       {friend.display_name || friend.username}
                     </span>
-                    <span className="section-chevron" onClick={() => toggleFriend(friend)} style={{ cursor: 'pointer' }}>
+                    <span
+                      className="section-chevron"
+                      onClick={e => { e.stopPropagation(); toggleFriend(friend) }}
+                      style={{ cursor: 'pointer' }}
+                    >
                       {expandedFriend === friend.id ? '▾' : '▸'}
                     </span>
-                  </div>
+                  </BannerFadeRow>
+
                   {expandedFriend === friend.id && (
                     <div className="sidebar-friend-lists">
                       {!friendLists[friend.id]
@@ -288,7 +314,6 @@ export default function Sidebar({
         </div>
       )}
 
-      {/* Profile Modal */}
       {profileModal && (
         <ProfileModal
           profile={profileModal.profile}

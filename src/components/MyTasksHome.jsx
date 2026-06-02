@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../supabaseClient'
 import { useFadeIn } from '../hooks/useFadeIn'
+import { useAudio } from '../context/AudioContext'
 
 const VISIBILITY_ICONS  = { private: '🔒', friends: '👥', groups: '🫂', public: '🌐' }
 const VISIBILITY_LABELS = { private: 'Private', friends: 'Friends', groups: 'Groups', public: 'Public' }
@@ -10,6 +11,26 @@ function defaultGradient(seed = '') {
   const h1 = (((seed.charCodeAt(0) || 0) * 37) + ((seed.charCodeAt(1) || 0) * 13)) % 360
   const h2 = (h1 + 60) % 360
   return `linear-gradient(135deg, hsl(${h1},55%,72%), hsl(${h2},60%,62%))`
+}
+
+// Compress image before upload
+async function compressImage(file, maxDim = 800, quality = 0.82) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.round(img.width * scale)
+      const h = Math.round(img.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      canvas.toBlob(blob => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file), 'image/jpeg', quality)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+    img.src = url
+  })
 }
 
 function ListAvatar({ group, size = 44 }) {
@@ -33,13 +54,22 @@ export default function MyTasksHome({ listGroups, onSelectGroup, onTogglePin, on
   const [showModal, setShowModal] = useState(false)
   const [editGroup, setEditGroup] = useState(null)
   const visible = useFadeIn([listGroups.length])
+  const { playStartup } = useAudio()
+  const hasPlayed = useRef(false)
+
+  // Play startup sound once on mount
+  useEffect(() => {
+    if (!hasPlayed.current) {
+      hasPlayed.current = true
+      setTimeout(() => playStartup(), 200)
+    }
+  }, [])
 
   const pinned   = listGroups.filter(g => g.pinned)
   const unpinned = listGroups.filter(g => !g.pinned)
 
   return (
     <div className={`my-tasks-home ${visible ? 'fade-in' : ''}`}>
-      {/* Page title row */}
       <div className="tasks-home-header">
         <div className="tasks-home-title-group">
           <h2>My Lists</h2>
@@ -55,7 +85,6 @@ export default function MyTasksHome({ listGroups, onSelectGroup, onTogglePin, on
         </button>
       </div>
 
-      {/* Empty state */}
       {listGroups.length === 0 && (
         <div className="empty-hero">
           <div className="empty-hero-art">
@@ -66,13 +95,12 @@ export default function MyTasksHome({ listGroups, onSelectGroup, onTogglePin, on
           </div>
           <h3>No lists yet</h3>
           <p>Lists keep your tasks organised and shareable with friends.<br/>Start by creating your first one.</p>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
+          <button className="btn-primary" onClick={() => setShowModal(true)} style={{ marginTop: 16 }}>
             Create a list
           </button>
         </div>
       )}
 
-      {/* Pinned */}
       {pinned.length > 0 && (
         <section className="lists-section">
           <div className="lists-section-row">
@@ -90,7 +118,6 @@ export default function MyTasksHome({ listGroups, onSelectGroup, onTogglePin, on
         </section>
       )}
 
-      {/* Unpinned rows */}
       {unpinned.length > 0 && (
         <section className="lists-section">
           {pinned.length > 0 && (
@@ -131,6 +158,146 @@ export default function MyTasksHome({ listGroups, onSelectGroup, onTogglePin, on
   )
 }
 
+// ── Shared: friend/group pickers ───────────────────────────────────────────
+function FriendGroupDropdown({ userId, selectedIds, onChange }) {
+  const [groups, setGroups] = useState([])
+  useEffect(() => {
+    supabase.from('friend_groups').select('id, name').eq('owner_id', userId)
+      .then(({ data }) => setGroups(data ?? []))
+  }, [userId])
+
+  return (
+    <div className="friend-group-share-picker">
+      <div className="fgs-header">
+        <span className="fgs-label">Visible to these friend groups:</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" className="btn-ghost-sm"
+            onClick={() => onChange(groups.map(g => g.id))}>Select all</button>
+          <button type="button" className="btn-ghost-sm"
+            onClick={() => onChange([])}>Remove all</button>
+        </div>
+      </div>
+      {groups.length === 0
+        ? <p style={{ fontSize: 12, color: 'var(--text-light)' }}>No friend groups yet. Create some in Friends → Groups.</p>
+        : groups.map(fg => (
+            <label key={fg.id} className="fgs-row">
+              <input type="checkbox" checked={selectedIds.includes(fg.id)}
+                onChange={() => onChange(selectedIds.includes(fg.id)
+                  ? selectedIds.filter(x => x !== fg.id)
+                  : [...selectedIds, fg.id])} />
+              <span>{fg.name}</span>
+            </label>
+          ))
+      }
+    </div>
+  )
+}
+
+function FriendDropdown({ userId, selectedIds, onChange }) {
+  const [friends, setFriends] = useState([])
+  useEffect(() => {
+    supabase.from('friendships')
+      .select('id, user_a, user_b, profile_a:profiles!friendships_user_a_fkey(id, username, display_name), profile_b:profiles!friendships_user_b_fkey(id, username, display_name)')
+      .or(`user_a.eq.${userId},user_b.eq.${userId}`)
+      .then(({ data }) => setFriends((data ?? []).map(f => f.user_a === userId ? f.profile_b : f.profile_a).filter(Boolean)))
+  }, [userId])
+
+  return (
+    <div className="friend-group-share-picker">
+      <div className="fgs-header">
+        <span className="fgs-label">Visible to these friends:</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" className="btn-ghost-sm"
+            onClick={() => onChange(friends.map(f => f.id))}>Select all</button>
+          <button type="button" className="btn-ghost-sm"
+            onClick={() => onChange([])}>Remove all</button>
+        </div>
+      </div>
+      {friends.length === 0
+        ? <p style={{ fontSize: 12, color: 'var(--text-light)' }}>No friends yet.</p>
+        : friends.map(f => (
+            <label key={f.id} className="fgs-row">
+              <input type="checkbox" checked={selectedIds.includes(f.id)}
+                onChange={() => onChange(selectedIds.includes(f.id)
+                  ? selectedIds.filter(x => x !== f.id)
+                  : [...selectedIds, f.id])} />
+              <span>{f.display_name || f.username}</span>
+            </label>
+          ))
+      }
+    </div>
+  )
+}
+
+// ── Visibility picker used in both Create + Edit ───────────────────────────
+function VisibilityPicker({ visibility, setVisibility, userId, friendGroupShares, setFriendGroupShares, friendShares, setFriendShares }) {
+  return (
+    <>
+      <div className="vis-picker">
+        {[
+          { value: 'private', icon: '🔒', label: 'Private',  desc: 'Only you' },
+          { value: 'friends', icon: '👥', label: 'Friends',  desc: 'Select specific friends' },
+          { value: 'groups',  icon: '🫂', label: 'Groups',   desc: 'Select friend groups' },
+          { value: 'public',  icon: '🌐', label: 'Public',   desc: 'Anyone can view' },
+        ].map(opt => (
+          <button key={opt.value} type="button"
+            className={`vis-opt ${visibility === opt.value ? 'active' : ''}`}
+            onClick={() => setVisibility(opt.value)}
+          >
+            <span className="vis-opt-icon">{opt.icon}</span>
+            <div className="vis-opt-text">
+              <span className="vis-opt-label">{opt.label}</span>
+              <span className="vis-opt-desc">{opt.desc}</span>
+            </div>
+            {visibility === opt.value && <span className="vis-opt-check">✓</span>}
+          </button>
+        ))}
+      </div>
+      {visibility === 'groups' && (
+        <FriendGroupDropdown userId={userId} selectedIds={friendGroupShares} onChange={setFriendGroupShares} />
+      )}
+      {visibility === 'friends' && (
+        <FriendDropdown userId={userId} selectedIds={friendShares} onChange={setFriendShares} />
+      )}
+    </>
+  )
+}
+
+// ── Audio file picker row ──────────────────────────────────────────────────
+function AudioFilePicker({ label, audioFile, audioName, onChange, onRemove }) {
+  const fileRef = useRef()
+  return (
+    <div className="audio-file-picker">
+      <span className="audio-file-label">{label}</span>
+      {audioName ? (
+        <div className="audio-file-loaded">
+          <span className="audio-file-name">🎵 {audioName}</span>
+          <button type="button" className="link-btn" onClick={onRemove}>Remove</button>
+          <button type="button" className="btn-ghost-sm" onClick={() => fileRef.current?.click()}>Replace</button>
+        </div>
+      ) : (
+        <button type="button" className="btn-ghost-sm" onClick={() => fileRef.current?.click()}>
+          + Add audio
+        </button>
+      )}
+      <input ref={fileRef} type="file" accept="audio/*" hidden onChange={e => {
+        const file = e.target.files[0]
+        if (!file) return
+        // Validate 10s
+        const url = URL.createObjectURL(file)
+        const audio = new Audio(url)
+        audio.onloadedmetadata = () => {
+          URL.revokeObjectURL(url)
+          if (audio.duration > 11) { alert('Audio file must be 10 seconds or less.'); return }
+          onChange(file)
+        }
+        audio.onerror = () => { URL.revokeObjectURL(url); alert('Could not read audio file.') }
+        e.target.value = ''
+      }} />
+    </div>
+  )
+}
+
 // ── Create list modal ──────────────────────────────────────────────────────
 function CreateListModal({ userId, onCreated, onClose }) {
   const [name, setName]               = useState('')
@@ -138,16 +305,32 @@ function CreateListModal({ userId, onCreated, onClose }) {
   const [visibility, setVisibility]   = useState('private')
   const [avatarFile, setAvatarFile]   = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(null)
+  const [bannerFile, setBannerFile]   = useState(null)
+  const [bannerPreview, setBannerPreview] = useState(null)
+  const [friendGroupShares, setFriendGroupShares] = useState([])
+  const [friendShares, setFriendShares] = useState([])
+  const [audioFile, setAudioFile]     = useState(null)
+  const [audioName, setAudioName]     = useState(null)
   const [saving, setSaving]           = useState(false)
   const fileRef = useRef()
+  const bannerRef = useRef()
 
   const gradientSeed = name.trim() || 'new'
 
-  const handleAvatarChange = (e) => {
+  const handleAvatarChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    setAvatarFile(file)
-    setAvatarPreview(URL.createObjectURL(file))
+    const compressed = await compressImage(file)
+    setAvatarFile(compressed)
+    setAvatarPreview(URL.createObjectURL(compressed))
+  }
+
+  const handleBannerChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const compressed = await compressImage(file, 1200, 0.80)
+    setBannerFile(compressed)
+    setBannerPreview(URL.createObjectURL(compressed))
   }
 
   const handleSubmit = async (e) => {
@@ -157,8 +340,7 @@ function CreateListModal({ userId, onCreated, onClose }) {
 
     let cover_url = null
     if (avatarFile) {
-      const ext = avatarFile.name.split('.').pop()
-      const path = `${userId}/list-${Date.now()}.${ext}`
+      const path = `${userId}/list-${Date.now()}.jpg`
       const { error: upErr } = await supabase.storage.from('avatars').upload(path, avatarFile)
       if (!upErr) {
         const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
@@ -166,18 +348,51 @@ function CreateListModal({ userId, onCreated, onClose }) {
       }
     }
 
-    const { data } = await supabase.from('list_groups').insert({
+    let banner_url = null
+    if (bannerFile) {
+      const path = `${userId}/list-banner-${Date.now()}.jpg`
+      const { error: upErr } = await supabase.storage.from('avatars').upload(path, bannerFile)
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+        banner_url = urlData.publicUrl
+      }
+    }
+
+    let audio_url = null
+    if (audioFile) {
+      const ext = audioFile.name.split('.').pop()
+      const path = `${userId}/list-audio-${Date.now()}.${ext}`
+      const { error: aErr } = await supabase.storage.from('avatars').upload(path, audioFile)
+      if (!aErr) {
+        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+        audio_url = urlData.publicUrl
+      }
+    }
+
+    const { data: group } = await supabase.from('list_groups').insert({
       owner_id: userId,
       name: name.trim(),
       description: description.trim() || null,
       visibility,
       cover_url,
+      banner_url,
+      audio_url,
       position: 0,
       pinned: false,
     }).select().single()
 
+    // Save friend/group shares
+    if (group) {
+      if (visibility === 'groups' && friendGroupShares.length) {
+        await supabase.from('list_group_shares').insert(
+          friendGroupShares.map(fgId => ({ list_group_id: group.id, friend_group_id: fgId }))
+        )
+      }
+      // friend visibility shares could be stored in a separate table if needed
+    }
+
     setSaving(false)
-    if (data) onCreated(data)
+    if (group) onCreated(group)
   }
 
   return createPortal(
@@ -189,7 +404,7 @@ function CreateListModal({ userId, onCreated, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} className="modal-form">
-          {/* Avatar — large centered picker */}
+          {/* Cover image */}
           <div className="modal-avatar-section">
             <div
               className="modal-avatar-btn"
@@ -215,58 +430,64 @@ function CreateListModal({ userId, onCreated, onClose }) {
             )}
           </div>
 
+          {/* Banner */}
+          <div className="field">
+            <label>Banner <span className="field-hint">— optional header image</span></label>
+            {bannerPreview ? (
+              <div className="list-banner-preview-wrap">
+                <img src={bannerPreview} alt="banner" className="list-banner-preview" />
+                <div className="list-banner-actions">
+                  <button type="button" className="btn-ghost-sm" onClick={() => bannerRef.current?.click()}>Change</button>
+                  <button type="button" className="btn-ghost-sm" onClick={() => { setBannerPreview(null); setBannerFile(null) }}>Remove</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="btn-ghost-sm" style={{ alignSelf: 'flex-start' }} onClick={() => bannerRef.current?.click()}>
+                + Add banner
+              </button>
+            )}
+            <input ref={bannerRef} type="file" accept="image/*" hidden onChange={handleBannerChange} />
+          </div>
+
           {/* Name */}
           <div className="field">
             <label>List name</label>
-            <input
-              className="modal-name-input"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Work tasks, Groceries, Reading list…"
-              required
-              autoFocus
-            />
+            <input className="modal-name-input" value={name} onChange={e => setName(e.target.value)}
+              placeholder="e.g. Work tasks, Groceries…" required autoFocus />
           </div>
 
           {/* Description */}
           <div className="field">
             <label>Description <span className="field-hint">— optional</span></label>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="What's this list for?"
-              rows={2}
-              maxLength={280}
-            />
+            <textarea value={description} onChange={e => setDescription(e.target.value)}
+              placeholder="What's this list for?" rows={2} maxLength={280} />
           </div>
 
           {/* Visibility */}
           <div className="field">
             <label>Who can see this list</label>
-            <div className="vis-picker">
-              {[
-                { value: 'private', icon: '🔒', label: 'Private',  desc: 'Only you' },
-                { value: 'friends', icon: '👥', label: 'Friends',  desc: 'Your friends can view and nudge' },
-                { value: 'public',  icon: '🌐', label: 'Public',   desc: 'Anyone can view' },
-              ].map(opt => (
-                <button key={opt.value} type="button"
-                  className={`vis-opt ${visibility === opt.value ? 'active' : ''}`}
-                  onClick={() => setVisibility(opt.value)}
-                >
-                  <span className="vis-opt-icon">{opt.icon}</span>
-                  <div className="vis-opt-text">
-                    <span className="vis-opt-label">{opt.label}</span>
-                    <span className="vis-opt-desc">{opt.desc}</span>
-                  </div>
-                  {visibility === opt.value && <span className="vis-opt-check">✓</span>}
-                </button>
-              ))}
-            </div>
+            <VisibilityPicker
+              visibility={visibility} setVisibility={setVisibility}
+              userId={userId}
+              friendGroupShares={friendGroupShares} setFriendGroupShares={setFriendGroupShares}
+              friendShares={friendShares} setFriendShares={setFriendShares}
+            />
+          </div>
+
+          {/* Audio */}
+          <div className="field">
+            <label>Open sound <span className="field-hint">— plays when list is opened (max 10s)</span></label>
+            <AudioFilePicker
+              label=""
+              audioFile={audioFile}
+              audioName={audioName}
+              onChange={(file) => { setAudioFile(file); setAudioName(file.name) }}
+              onRemove={() => { setAudioFile(null); setAudioName(null) }}
+            />
           </div>
 
           <div className="modal-actions">
-            <button type="submit" className="btn-primary modal-submit-btn"
-              disabled={saving || !name.trim()}>
+            <button type="submit" className="btn-primary modal-submit-btn" disabled={saving || !name.trim()}>
               {saving ? 'Creating…' : 'Create list'}
             </button>
             <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
@@ -278,7 +499,7 @@ function CreateListModal({ userId, onCreated, onClose }) {
   )
 }
 
-// ── List card (pinned, larger box) ─────────────────────────────────────────
+// ── List card (pinned) ────────────────────────────────────────────────────
 function ListCard({ group, index, onOpen, onTogglePin, onEdit }) {
   return (
     <div className="list-card" style={{ '--i': index }} onClick={onOpen}>
@@ -292,34 +513,24 @@ function ListCard({ group, index, onOpen, onTogglePin, onEdit }) {
           {VISIBILITY_ICONS[group.visibility]} {VISIBILITY_LABELS[group.visibility]}
         </div>
         <div className="list-card-name">{group.name}</div>
-        {group.description && (
-          <div className="list-card-desc">{group.description}</div>
-        )}
-        <div style={{display:'flex',gap:6}}>
-          <button
-            className="list-card-unpin-btn"
-            onClick={e => { e.stopPropagation(); onEdit() }}
-          >Edit</button>
-          <button
-            className="list-card-unpin-btn"
-            onClick={e => { e.stopPropagation(); onTogglePin() }}
-          >Unpin</button>
+        {group.description && <div className="list-card-desc">{group.description}</div>}
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="list-card-unpin-btn" onClick={e => { e.stopPropagation(); onEdit() }}>Edit</button>
+          <button className="list-card-unpin-btn" onClick={e => { e.stopPropagation(); onTogglePin() }}>Unpin</button>
         </div>
       </div>
     </div>
   )
 }
 
-// ── List row (unpinned, compact iMessage-style) ────────────────────────────
+// ── List row (unpinned) ────────────────────────────────────────────────────
 function ListRow({ group, index, onOpen, onTogglePin, onEdit }) {
   return (
     <li className="list-row" style={{ '--i': index }} onClick={onOpen}>
       <ListAvatar group={group} size={42} />
       <div className="list-row-info">
         <span className="list-row-name">{group.name}</span>
-        <span className="list-row-sub">
-          {group.description || VISIBILITY_LABELS[group.visibility]}
-        </span>
+        <span className="list-row-sub">{group.description || VISIBILITY_LABELS[group.visibility]}</span>
       </div>
       <div className="list-row-right">
         <span className="list-row-vis">{VISIBILITY_ICONS[group.visibility]}</span>
@@ -330,21 +541,44 @@ function ListRow({ group, index, onOpen, onTogglePin, onEdit }) {
   )
 }
 
-// ── Edit List Modal ──────────────────────────────────────────────────────────
+// ── Edit List Modal ───────────────────────────────────────────────────────
 function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
   const [name, setName] = useState(group.name)
   const [description, setDescription] = useState(group.description || '')
   const [visibility, setVisibility] = useState(group.visibility)
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(group.cover_url)
+  const [bannerFile, setBannerFile] = useState(null)
+  const [bannerPreview, setBannerPreview] = useState(group.banner_url || null)
+  const [friendGroupShares, setFriendGroupShares] = useState([])
+  const [friendShares, setFriendShares] = useState([])
+  const [audioFile, setAudioFile] = useState(null)
+  const [audioName, setAudioName] = useState(group.audio_url ? 'Current audio' : null)
+  const [removeAudio, setRemoveAudio] = useState(false)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef()
+  const bannerRef = useRef()
 
-  const handleAvatarChange = (e) => {
+  useEffect(() => {
+    // Load existing shares
+    supabase.from('list_group_shares').select('friend_group_id').eq('list_group_id', group.id)
+      .then(({ data }) => setFriendGroupShares((data ?? []).map(r => r.friend_group_id)))
+  }, [group.id])
+
+  const handleAvatarChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    setAvatarFile(file)
-    setAvatarPreview(URL.createObjectURL(file))
+    const compressed = await compressImage(file)
+    setAvatarFile(compressed)
+    setAvatarPreview(URL.createObjectURL(compressed))
+  }
+
+  const handleBannerChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const compressed = await compressImage(file, 1200, 0.80)
+    setBannerFile(compressed)
+    setBannerPreview(URL.createObjectURL(compressed))
   }
 
   const handleSubmit = async (e) => {
@@ -352,21 +586,47 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
     if (!name.trim()) return
     setSaving(true)
 
-    let cover_url = group.cover_url
+    let cover_url = avatarPreview === null ? null : group.cover_url
     if (avatarFile) {
-      const ext = avatarFile.name.split('.').pop()
-      const path = `${userId}/list-${group.id}.${ext}`
+      const path = `${userId}/list-${group.id}.jpg`
       const { error: upErr } = await supabase.storage.from('avatars').upload(path, avatarFile, { upsert: true })
       if (!upErr) {
         const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
         cover_url = urlData.publicUrl
       }
-    } else if (avatarPreview === null) {
-      cover_url = null
+    }
+
+    let banner_url = bannerPreview === null ? null : group.banner_url
+    if (bannerFile) {
+      const path = `${userId}/list-banner-${group.id}.jpg`
+      const { error: bErr } = await supabase.storage.from('avatars').upload(path, bannerFile, { upsert: true })
+      if (!bErr) {
+        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+        banner_url = urlData.publicUrl
+      }
+    }
+
+    let audio_url = removeAudio ? null : group.audio_url
+    if (audioFile) {
+      const ext = audioFile.name.split('.').pop()
+      const path = `${userId}/list-audio-${group.id}.${ext}`
+      const { error: aErr } = await supabase.storage.from('avatars').upload(path, audioFile, { upsert: true })
+      if (!aErr) {
+        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+        audio_url = urlData.publicUrl
+      }
+    }
+
+    // Update shares
+    await supabase.from('list_group_shares').delete().eq('list_group_id', group.id)
+    if (visibility === 'groups' && friendGroupShares.length) {
+      await supabase.from('list_group_shares').insert(
+        friendGroupShares.map(fgId => ({ list_group_id: group.id, friend_group_id: fgId }))
+      )
     }
 
     const { data } = await supabase.from('list_groups')
-      .update({ name: name.trim(), description: description.trim() || null, visibility, cover_url })
+      .update({ name: name.trim(), description: description.trim() || null, visibility, cover_url, banner_url, audio_url })
       .eq('id', group.id).select().single()
     setSaving(false)
     if (data) onSaved(data)
@@ -386,6 +646,7 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit} className="modal-form">
+          {/* Cover image */}
           <div className="modal-avatar-section">
             <div className="modal-avatar-btn"
               onClick={() => fileRef.current?.click()}
@@ -407,6 +668,26 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
               </button>
             )}
           </div>
+
+          {/* Banner */}
+          <div className="field">
+            <label>Banner <span className="field-hint">— optional header image</span></label>
+            {bannerPreview ? (
+              <div className="list-banner-preview-wrap">
+                <img src={bannerPreview} alt="banner" className="list-banner-preview" />
+                <div className="list-banner-actions">
+                  <button type="button" className="btn-ghost-sm" onClick={() => bannerRef.current?.click()}>Change</button>
+                  <button type="button" className="btn-ghost-sm" onClick={() => { setBannerPreview(null); setBannerFile(null) }}>Remove</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="btn-ghost-sm" style={{ alignSelf: 'flex-start' }} onClick={() => bannerRef.current?.click()}>
+                + Add banner
+              </button>
+            )}
+            <input ref={bannerRef} type="file" accept="image/*" hidden onChange={handleBannerChange} />
+          </div>
+
           <div className="field">
             <label>List name</label>
             <input className="modal-name-input" value={name} onChange={e => setName(e.target.value)} required autoFocus />
@@ -415,29 +696,30 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
             <label>Description <span className="field-hint">— optional</span></label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} maxLength={280} placeholder="What's this list for?" />
           </div>
+
           <div className="field">
             <label>Who can see this list</label>
-            <div className="vis-picker">
-              {[
-                { value: 'private', icon: '🔒', label: 'Private',  desc: 'Only you' },
-                { value: 'friends', icon: '👥', label: 'Friends',  desc: 'Your friends can view and nudge' },
-                { value: 'public',  icon: '🌐', label: 'Public',   desc: 'Anyone can view' },
-              ].map(opt => (
-                <button key={opt.value} type="button"
-                  className={`vis-opt ${visibility === opt.value ? 'active' : ''}`}
-                  onClick={() => setVisibility(opt.value)}>
-                  <span className="vis-opt-icon">{opt.icon}</span>
-                  <div className="vis-opt-text">
-                    <span className="vis-opt-label">{opt.label}</span>
-                    <span className="vis-opt-desc">{opt.desc}</span>
-                  </div>
-                  {visibility === opt.value && <span className="vis-opt-check">✓</span>}
-                </button>
-              ))}
-            </div>
+            <VisibilityPicker
+              visibility={visibility} setVisibility={setVisibility}
+              userId={userId}
+              friendGroupShares={friendGroupShares} setFriendGroupShares={setFriendGroupShares}
+              friendShares={friendShares} setFriendShares={setFriendShares}
+            />
           </div>
-          <div className="modal-actions" style={{justifyContent:'space-between'}}>
-            <div style={{display:'flex',gap:8}}>
+
+          <div className="field">
+            <label>Open sound <span className="field-hint">— plays when list is opened (max 10s)</span></label>
+            <AudioFilePicker
+              label=""
+              audioFile={audioFile}
+              audioName={audioName}
+              onChange={(file) => { setAudioFile(file); setAudioName(file.name); setRemoveAudio(false) }}
+              onRemove={() => { setAudioFile(null); setAudioName(null); setRemoveAudio(true) }}
+            />
+          </div>
+
+          <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
               <button type="submit" className="btn-primary" disabled={saving || !name.trim()}>
                 {saving ? 'Saving…' : 'Save changes'}
               </button>

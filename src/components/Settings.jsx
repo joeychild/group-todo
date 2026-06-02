@@ -5,10 +5,8 @@ import { useNotifications } from '../context/NotificationContext'
 import { useFadeIn } from '../hooks/useFadeIn'
 
 const NOTIF_PREF_OPTIONS = [
-  { key: 'nudge',                 label: 'Task nudges',                desc: 'When a friend nudges you about a task' },
   { key: 'friend_request',        label: 'Friend requests',            desc: 'When someone sends you a friend request' },
   { key: 'friend_removed',        label: 'Friend removals',            desc: 'When someone removes you as a friend' },
-  { key: 'nudged_task_completed', label: 'Nudged task completed',      desc: 'When a task you nudged gets completed' },
   { key: 'friend_list_created',   label: 'Friend list activity',       desc: 'When a friend creates a new list' },
   { key: 'due_date',              label: 'Due date alerts',            desc: 'Toast when a task is due' },
 ]
@@ -17,6 +15,78 @@ function defaultGradient(seed = '') {
   const h1 = (((seed.charCodeAt(0) || 0) * 37) + ((seed.charCodeAt(1) || 0) * 13)) % 360
   const h2 = (h1 + 60) % 360
   return `linear-gradient(135deg, hsl(${h1},55%,72%), hsl(${h2},60%,62%))`
+}
+
+// Compress image file before upload
+async function compressImage(file, maxDim = 800, quality = 0.82) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.round(img.width * scale)
+      const h = Math.round(img.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      canvas.toBlob(blob => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file), 'image/jpeg', quality)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+    img.src = url
+  })
+}
+
+function AudioBlock({ title, hint, type, settings, updateSettings, loadCustomFile, onPreview }) {
+  const fileRef = useRef()
+  const soundKey  = `${type}Sound`
+  const volKey    = `${type}Volume`
+  const urlKey    = `custom${type.charAt(0).toUpperCase() + type.slice(1)}Url`
+  const nameKey   = `custom${type.charAt(0).toUpperCase() + type.slice(1)}Name`
+
+  const currentSound  = settings[soundKey]
+  const currentVol    = settings[volKey]
+  const currentName   = settings[nameKey]
+
+  return (
+    <div className="settings-block">
+      <h3>{title}</h3>
+      <p className="settings-hint">{hint}</p>
+      <div className="audio-options">
+        {['default', 'custom', 'off'].map(opt => (
+          <label key={opt} className={`radio-opt ${currentSound === opt ? 'active' : ''}`}>
+            <input type="radio" name={`${type}Sound`} value={opt}
+              checked={currentSound === opt}
+              onChange={() => updateSettings({ [soundKey]: opt })} />
+            {opt === 'default' ? '🔔 Default' : opt === 'custom' ? '📁 Custom file' : '🔇 Off'}
+          </label>
+        ))}
+      </div>
+      {currentSound === 'custom' && (
+        <div className="file-drop-area" onClick={() => fileRef.current?.click()}>
+          <input ref={fileRef} type="file" accept="audio/*" hidden onChange={e => {
+            if (e.target.files[0]) {
+              loadCustomFile(type, e.target.files[0])
+              e.target.value = ''
+            }
+          }} />
+          <span>
+            {currentName
+              ? <>✓ <strong>{currentName}</strong> — click to replace</>
+              : 'Click to upload audio file (max 10s)'}
+          </span>
+        </div>
+      )}
+      <div className="volume-row">
+        <label>Volume</label>
+        <input type="range" min="0" max="1" step="0.05" value={currentVol}
+          onChange={e => updateSettings({ [volKey]: parseFloat(e.target.value) })}
+          disabled={currentSound === 'off'} />
+        <span>{Math.round(currentVol * 100)}%</span>
+      </div>
+      <button className="btn-ghost-sm" onClick={onPreview} disabled={currentSound === 'off'}>▶ Preview</button>
+    </div>
+  )
 }
 
 export default function Settings({ profile, onProfileUpdate }) {
@@ -34,28 +104,29 @@ export default function Settings({ profile, onProfileUpdate }) {
   const [newEmail, setNewEmail] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
-  const { settings: audioSettings, updateSettings: updateAudio, loadCustomFile, playNudge, playNotification } = useAudio()
+  const { settings: audioSettings, updateSettings: updateAudio, loadCustomFile,
+    playNudge, playNotification, playStartup, playRemoveNudge } = useAudio()
   const { prefs, savePrefs, DEFAULT_PREFS } = useNotifications()
-  const nudgeFileRef = useRef()
-  const notifFileRef = useRef()
   const visible = useFadeIn([tab])
 
   const bannerStyle = bannerPreview
     ? { backgroundImage: `url(${bannerPreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }
     : { background: defaultGradient(profile.id || profile.username || '') }
 
-  const handleAvatarChange = (e) => {
+  const handleAvatarChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    setAvatarFile(file)
-    setAvatarPreview(URL.createObjectURL(file))
+    const compressed = await compressImage(file)
+    setAvatarFile(compressed)
+    setAvatarPreview(URL.createObjectURL(compressed))
   }
 
-  const handleBannerChange = (e) => {
+  const handleBannerChange = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    setBannerFile(file)
-    setBannerPreview(URL.createObjectURL(file))
+    const compressed = await compressImage(file, 1200, 0.80)
+    setBannerFile(compressed)
+    setBannerPreview(URL.createObjectURL(compressed))
   }
 
   const saveProfile = async () => {
@@ -64,7 +135,7 @@ export default function Settings({ profile, onProfileUpdate }) {
     let banner_url = profile.banner_url
 
     if (avatarFile) {
-      const ext = avatarFile.name.split('.').pop()
+      const ext = 'jpg'
       const path = `${profile.id}/avatar.${ext}`
       await supabase.storage.from('avatars').upload(path, avatarFile, { upsert: true })
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
@@ -74,7 +145,7 @@ export default function Settings({ profile, onProfileUpdate }) {
     }
 
     if (bannerFile) {
-      const ext = bannerFile.name.split('.').pop()
+      const ext = 'jpg'
       const path = `${profile.id}/banner.${ext}`
       await supabase.storage.from('avatars').upload(path, bannerFile, { upsert: true })
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
@@ -140,7 +211,6 @@ export default function Settings({ profile, onProfileUpdate }) {
 
       {tab === 'profile' && (
         <div className="settings-section">
-          {/* Banner picker */}
           <div className="settings-block" style={{ padding: 0, overflow: 'hidden' }}>
             <div className="profile-banner-preview" style={bannerStyle}>
               <div className="profile-banner-overlay" />
@@ -150,21 +220,15 @@ export default function Settings({ profile, onProfileUpdate }) {
                   <input type="file" accept="image/*" onChange={handleBannerChange} hidden />
                 </label>
                 {bannerPreview && (
-                  <button
-                    className="btn-ghost-sm"
-                    style={{ background: 'rgba(0,0,0,0.4)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }}
-                    onClick={() => { setBannerPreview(null); setBannerFile(null) }}
-                  >Remove</button>
+                  <button className="btn-ghost-sm" style={{ background: 'rgba(0,0,0,0.4)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }}
+                    onClick={() => { setBannerPreview(null); setBannerFile(null) }}>Remove</button>
                 )}
               </div>
             </div>
             <div style={{ padding: '20px' }}>
               <div className="avatar-upload-row">
                 <div className="avatar-lg">
-                  {avatarPreview
-                    ? <img src={avatarPreview} alt="" />
-                    : <span>{(profile.display_name || profile.username)[0].toUpperCase()}</span>
-                  }
+                  {avatarPreview ? <img src={avatarPreview} alt="" /> : <span>{(profile.display_name || profile.username)[0].toUpperCase()}</span>}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label className="btn-ghost">
@@ -238,65 +302,34 @@ export default function Settings({ profile, onProfileUpdate }) {
 
       {tab === 'audio' && (
         <div className="settings-section">
-          <div className="settings-block">
-            <h3>Nudge sound</h3>
-            <p className="settings-hint">Played when a friend nudges you on a task.</p>
-            <div className="audio-options">
-              {['default', 'custom', 'off'].map(opt => (
-                <label key={opt} className={`radio-opt ${audioSettings.nudgeSound === opt ? 'active' : ''}`}>
-                  <input type="radio" name="nudgeSound" value={opt}
-                    checked={audioSettings.nudgeSound === opt}
-                    onChange={() => updateAudio({ nudgeSound: opt })} />
-                  {opt === 'default' ? '🔔 Default' : opt === 'custom' ? '📁 Custom file' : '🔇 Off'}
-                </label>
-              ))}
-            </div>
-            {audioSettings.nudgeSound === 'custom' && (
-              <div className="file-drop-area" onClick={() => nudgeFileRef.current?.click()}>
-                <input ref={nudgeFileRef} type="file" accept="audio/*" hidden
-                  onChange={e => e.target.files[0] && loadCustomFile('nudge', e.target.files[0])} />
-                <span>{audioSettings.customNudgeUrl ? '✓ Custom file loaded — click to replace' : 'Click to upload audio file'}</span>
-              </div>
-            )}
-            <div className="volume-row">
-              <label>Volume</label>
-              <input type="range" min="0" max="1" step="0.05" value={audioSettings.nudgeVolume}
-                onChange={e => updateAudio({ nudgeVolume: parseFloat(e.target.value) })}
-                disabled={audioSettings.nudgeSound === 'off'} />
-              <span>{Math.round(audioSettings.nudgeVolume * 100)}%</span>
-            </div>
-            <button className="btn-ghost-sm" onClick={playNudge} disabled={audioSettings.nudgeSound === 'off'}>▶ Preview</button>
-          </div>
-
-          <div className="settings-block">
-            <h3>Notification sound</h3>
-            <p className="settings-hint">Played for friend requests, acceptances, and other alerts.</p>
-            <div className="audio-options">
-              {['default', 'custom', 'off'].map(opt => (
-                <label key={opt} className={`radio-opt ${audioSettings.notificationSound === opt ? 'active' : ''}`}>
-                  <input type="radio" name="notifSound" value={opt}
-                    checked={audioSettings.notificationSound === opt}
-                    onChange={() => updateAudio({ notificationSound: opt })} />
-                  {opt === 'default' ? '🔔 Default' : opt === 'custom' ? '📁 Custom file' : '🔇 Off'}
-                </label>
-              ))}
-            </div>
-            {audioSettings.notificationSound === 'custom' && (
-              <div className="file-drop-area" onClick={() => notifFileRef.current?.click()}>
-                <input ref={notifFileRef} type="file" accept="audio/*" hidden
-                  onChange={e => e.target.files[0] && loadCustomFile('notification', e.target.files[0])} />
-                <span>{audioSettings.customNotificationUrl ? '✓ Custom file loaded — click to replace' : 'Click to upload audio file'}</span>
-              </div>
-            )}
-            <div className="volume-row">
-              <label>Volume</label>
-              <input type="range" min="0" max="1" step="0.05" value={audioSettings.notificationVolume}
-                onChange={e => updateAudio({ notificationVolume: parseFloat(e.target.value) })}
-                disabled={audioSettings.notificationSound === 'off'} />
-              <span>{Math.round(audioSettings.notificationVolume * 100)}%</span>
-            </div>
-            <button className="btn-ghost-sm" onClick={playNotification} disabled={audioSettings.notificationSound === 'off'}>▶ Preview</button>
-          </div>
+          <AudioBlock
+            title="Startup sound"
+            hint='Plays when "My Lists" is opened.'
+            type="startup"
+            settings={audioSettings} updateSettings={updateAudio} loadCustomFile={loadCustomFile}
+            onPreview={playStartup}
+          />
+          <AudioBlock
+            title="Nudge sound"
+            hint="Played when you nudge someone's task."
+            type="nudge"
+            settings={audioSettings} updateSettings={updateAudio} loadCustomFile={loadCustomFile}
+            onPreview={playNudge}
+          />
+          <AudioBlock
+            title="Remove nudge sound"
+            hint="Played when you un-nudge a task."
+            type="removeNudge"
+            settings={audioSettings} updateSettings={updateAudio} loadCustomFile={loadCustomFile}
+            onPreview={playRemoveNudge}
+          />
+          <AudioBlock
+            title="Notification sound"
+            hint="Played for friend requests, acceptances, and other alerts."
+            type="notification"
+            settings={audioSettings} updateSettings={updateAudio} loadCustomFile={loadCustomFile}
+            onPreview={playNotification}
+          />
         </div>
       )}
 
@@ -314,12 +347,8 @@ export default function Settings({ profile, onProfileUpdate }) {
             <div className="notif-pref-list">
               {NOTIF_PREF_OPTIONS.map(opt => (
                 <label key={opt.key} className="notif-pref-row">
-                  <input
-                    type="checkbox"
-                    checked={prefs[opt.key] ?? true}
-                    onChange={() => togglePref(opt.key)}
-                    className="notif-pref-check"
-                  />
+                  <input type="checkbox" checked={prefs[opt.key] ?? true}
+                    onChange={() => togglePref(opt.key)} className="notif-pref-check" />
                   <div className="notif-pref-text">
                     <span className="notif-pref-label">{opt.label}</span>
                     <span className="notif-pref-desc">{opt.desc}</span>

@@ -5,12 +5,11 @@ import { useAudio } from './AudioContext'
 const NotifCtx = createContext(null)
 
 const DEFAULT_PREFS = {
-  nudge: true,
-  friend_request: true,
-  friend_removed: true,
+  friend_request:        true,
+  friend_removed:        true,
   nudged_task_completed: true,
-  friend_list_created: true,
-  due_date: true,
+  friend_list_created:   true,
+  due_date:              true,
 }
 
 export function NotificationProvider({ children, userId }) {
@@ -22,7 +21,7 @@ export function NotificationProvider({ children, userId }) {
       return saved ? { ...DEFAULT_PREFS, ...JSON.parse(saved) } : DEFAULT_PREFS
     } catch { return DEFAULT_PREFS }
   })
-  const { playNotification, playNudge } = useAudio()
+  const { playNotification } = useAudio()
 
   const savePrefs = (updated) => {
     setPrefs(updated)
@@ -57,8 +56,7 @@ export function NotificationProvider({ children, userId }) {
           const notif = { ...payload.new, from_user: sender }
           setNotifications(prev => [notif, ...prev])
           if (!prefs[notif.type]) return
-          if (notif.type === 'nudge') playNudge()
-          else playNotification()
+          playNotification()
           addToast(notif)
         }
       )
@@ -70,12 +68,7 @@ export function NotificationProvider({ children, userId }) {
   // Due-date polling every minute
   useEffect(() => {
     if (!userId || !prefs.due_date) return
-    const check = () => {
-      const now = new Date()
-      // Toasts handled by TodoList; this context just provides the hook
-    }
-    check()
-    const interval = setInterval(check, 60000)
+    const interval = setInterval(() => {}, 60000)
     return () => clearInterval(interval)
   }, [userId, prefs.due_date])
 
@@ -103,12 +96,11 @@ export function NotificationProvider({ children, userId }) {
 
   const unreadCount = notifications.filter(n => !n.read).length
 
-  // Per-source unread counts
   const friendUnread = notifications.filter(n =>
     !n.read && ['friend_request', 'friend_removed', 'friend_accepted'].includes(n.type)
   ).length
   const taskUnread = notifications.filter(n =>
-    !n.read && ['nudge', 'nudged_task_completed', 'friend_list_created', 'due_date'].includes(n.type)
+    !n.read && ['nudged_task_completed', 'friend_list_created', 'due_date'].includes(n.type)
   ).length
 
   return (

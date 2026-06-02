@@ -30,7 +30,6 @@ function formatDueDate(dateStr) {
   const isOverdue = d < now && !isNaN(d)
   const isToday = d.toDateString() === now.toDateString()
   const isTomorrow = d.toDateString() === new Date(now.getTime() + 86400000).toDateString()
-
   let label
   if (isToday) {
     label = `Today at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -174,6 +173,17 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
   const { playNudge } = useAudio()
   const dateRef = useRef()
 
+  // Play list audio on open
+  useEffect(() => {
+    if (group.audio_url) {
+      try {
+        const a = new Audio(group.audio_url)
+        a.volume = 0.7
+        a.play().catch(() => {})
+      } catch (e) {}
+    }
+  }, [group.id])
+
   // Clear task-related notifications when this list is opened
   useEffect(() => {
     const taskNotifIds = notifications
@@ -219,8 +229,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
 
     supabase.from('list_group_shares').select('friend_group_id').eq('list_group_id', group.id)
       .then(({ data }) => setGroupVisibilityShares((data ?? []).map(r => r.friend_group_id)))
-
-    // No more 8s polling — refresh is manual via the sidebar refresh button
   }, [group.id, fetchData])
 
   // Due date toast checker
@@ -260,17 +268,7 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
       is_complete: newComplete,
       status: newComplete ? 'done' : (todo.status === 'done' ? 'not_started' : todo.status),
     }).eq('id', todo.id)
-
-    if (newComplete && prefs?.nudged_task_completed) {
-      const { data: nudgers } = await supabase.from('nudges')
-        .select('from_user_id').eq('todo_id', todo.id)
-      const uniqueNudgers = [...new Set((nudgers ?? []).map(n => n.from_user_id).filter(Boolean))]
-      await Promise.all(uniqueNudgers.map(nudgerId =>
-        supabase.from('notifications').insert({
-          user_id: nudgerId, from_user_id: userId, type: 'nudged_task_completed', entity_id: todo.id,
-        })
-      ))
-    }
+    // Only send nudge-completed notifications when checking off (not unchecking)
     fetchData()
   }
 
@@ -342,7 +340,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
       cover_url = urlData.publicUrl
     }
-    // Sync group-visibility shares
     await supabase.from('list_group_shares').delete().eq('list_group_id', group.id)
     if (groupVisibility === 'groups' && groupVisibilityShares.length) {
       await supabase.from('list_group_shares').insert(
@@ -364,7 +361,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
 
   if (loading) return <div className="page-loading">Loading…</div>
 
-  // Header background: cover image OR gradient
   const headerBg = coverPreview
     ? { backgroundImage: `url(${coverPreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }
     : { background: defaultGradient(group.id || group.name) }
@@ -372,7 +368,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
   return (
     <div className={`todo-page-wrapper ${selectedTodo ? 'with-detail' : ''}`}>
       <div className={`todo-page ${visible ? 'fade-in' : ''}`}>
-        {/* Group header */}
         <div className="todo-header">
           {!editingGroup && (
             <div className="todo-cover-hero" style={headerBg}>
@@ -385,6 +380,18 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                   <span className="group-vis-pill light">
                     {VISIBILITY_OPTIONS.find(o => o.value === group.visibility)?.label}
                   </span>
+                  {group.audio_url && (
+                    <button className="icon-btn light" onClick={
+                      () => {if (group.audio_url) {
+                        try {
+                          const a = new Audio(group.audio_url)
+                          a.volume = 0.7
+                          a.play().catch(() => {})
+                        } catch (e) {}
+                      }}
+                    } title="Play list audio">♪</button>
+                  )
+                  }
                   {!readOnly && (
                     <button className="icon-btn light" onClick={() => setEditingGroup(true)} title="Edit list">⚙</button>
                   )}
@@ -419,51 +426,41 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                     + Add task
                   </button>
                 ) : (
-                <form onSubmit={addTodo} className="add-todo-form-inline">
-                  <input
-                    className="add-todo-title-input"
-                    value={newTitle}
-                    onChange={e => setNewTitle(e.target.value)}
-                    placeholder="Task name…"
-                    autoFocus
-                  />
-
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => dateRef.current?.showPicker?.()}
-                    title="Set due date"
-                  >
-                    📅
-                  </button>
-
-                  <input
-                    ref={dateRef}
-                    type="datetime-local"
-                    value={newDueDate}
-                    onChange={e => setNewDueDate(e.target.value)}
-                    className="hidden-date-input"
-                  />
-
-                  {newDueDate && (
-                    <span className="add-todo-meta-value">
-                      {new Date(newDueDate).toLocaleString([], {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: true,
-                      })}
-                    </span>
-                  )}
-                  <button
-                    type="submit"
-                    className="btn-primary-sm"
-                    disabled={!newTitle.trim()}
-                  >
-                    Add
-                  </button>
-                </form>
+                  <form onSubmit={addTodo} className="add-todo-form-inline">
+                    <input
+                      className="add-todo-title-input"
+                      value={newTitle}
+                      onChange={e => setNewTitle(e.target.value)}
+                      placeholder="Task name…"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => dateRef.current?.showPicker?.()}
+                      title="Set due date"
+                    >
+                      📅
+                    </button>
+                    <input
+                      ref={dateRef}
+                      type="datetime-local"
+                      value={newDueDate}
+                      onChange={e => setNewDueDate(e.target.value)}
+                      className="hidden-date-input"
+                    />
+                    {newDueDate && (
+                      <span className="add-todo-meta-value">
+                        {new Date(newDueDate).toLocaleString([], {
+                          month: 'short', day: 'numeric',
+                          hour: '2-digit', minute: '2-digit', hour12: true,
+                        })}
+                      </span>
+                    )}
+                    <button type="submit" className="btn-primary-sm" disabled={!newTitle.trim()}>
+                      Add
+                    </button>
+                  </form>
                 )}
               </div>
             )}
@@ -476,15 +473,18 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                   <li
                     key={todo.id}
                     className={`todo-item ${todo.is_complete ? 'complete' : ''} ${!readOnly && dragOver === index ? 'drag-over' : ''} ${selectedTodo?.id === todo.id ? 'todo-item-selected' : ''}`}
-                    draggable={!readOnly}
-                    onDragStart={!readOnly ? e => handleDragStart(e, index) : undefined}
+                    draggable={!readOnly && !todo.is_complete}
+                    onDragStart={!readOnly && !todo.is_complete ? e => handleDragStart(e, index) : undefined}
                     onDragOver={!readOnly ? e => { e.preventDefault(); setDragOver(index) } : undefined}
                     onDrop={!readOnly ? e => handleDrop(e, index) : undefined}
                     onDragLeave={!readOnly ? () => setDragOver(null) : undefined}
                     style={{ '--i': index }}
                     onClick={() => setSelectedTodo(selectedTodo?.id === todo.id ? null : todo)}
                   >
-                    {!readOnly && <span className="drag-handle" onClick={e => e.stopPropagation()}>⠿</span>}
+                    {!readOnly && !todo.is_complete && (
+                      <span className="drag-handle" onClick={e => e.stopPropagation()}>⠿</span>
+                    )}
+                    {/* Checkbox: owners can always toggle; readOnly visitors cannot */}
                     {!readOnly && (
                       <input type="checkbox" checked={todo.is_complete}
                         onClick={e => e.stopPropagation()} onChange={() => toggleTodo(todo)} />
@@ -500,22 +500,20 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                       )}
                     </div>
 
-                    {!todo.is_complete && (
-                      <StatusBubble
-                        status={todo.status || 'not_started'}
-                        isComplete={todo.is_complete}
-                        readOnly={readOnly}
-                        onChange={async (newSt) => {
-                          await updateTodoField(todo.id, { status: newSt })
-                        }}
-                      />
-                    )}
+                    {/* Status pill: show for all incomplete todos; also show on complete so you can see it */}
+                    <StatusBubble
+                      status={todo.status || 'not_started'}
+                      isComplete={todo.is_complete}
+                      readOnly={readOnly || todo.is_complete}
+                      onChange={async (newSt) => {
+                        await updateTodoField(todo.id, { status: newSt })
+                      }}
+                    />
 
-                    {count > 0 && (
-                      <NudgeTooltip todoId={todo.id} count={count} />
-                    )}
+                    {count > 0 && <NudgeTooltip todoId={todo.id} count={count} />}
 
-                    {readOnly && (
+                    {/* Nudge button: only on friend's lists, only on incomplete todos */}
+                    {readOnly && !todo.is_complete && (
                       <button
                         className={`nudge-btn ${nudgedByMe.has(todo.id) ? 'nudged' : ''}`}
                         onClick={e => handleNudge(todo, e)}
@@ -594,7 +592,6 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
         ))}
       </div>
 
-      {/* Friend group selector for 'groups' visibility */}
       {groupVisibility === 'groups' && (
         <div className="friend-group-share-picker">
           <div className="fgs-header">
@@ -605,7 +602,7 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
             </div>
           </div>
           {friendGroups.length === 0
-            ? <p style={{ fontSize: 12, color: 'var(--text-light)' }}>No friend groups yet. Create some in Friends → Groups.</p>
+            ? <p style={{ fontSize: 12, color: 'var(--text-light)' }}>No friend groups yet.</p>
             : friendGroups.map(fg => (
                 <label key={fg.id} className="fgs-row">
                   <input type="checkbox" checked={groupVisibilityShares.includes(fg.id)}
@@ -617,12 +614,10 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
         </div>
       )}
 
-      {/* Friends visibility - select specific friends */}
       {groupVisibility === 'friends' && (
-        <FriendVisibilityPicker
-          ownerId={groupVisibilityShares}
-          setShares={setGroupVisibilityShares}
-        />
+        <p style={{ fontSize: 12, color: 'var(--text-mid)', padding: '8px 0' }}>
+          All friends can see this list. Use <strong>Groups</strong> visibility to share with specific friend groups only.
+        </p>
       )}
 
       <div className="group-edit-actions">
@@ -631,17 +626,6 @@ function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisib
         <button className="btn-danger" onClick={onDelete}>Delete list</button>
       </div>
     </div>
-  )
-}
-
-// Note: FriendVisibilityPicker is currently a placeholder; the friends-based
-// visibility uses supabase RLS that checks friendships. "groups" visibility
-// uses list_group_shares. This component shows a note to the user.
-function FriendVisibilityPicker() {
-  return (
-    <p style={{ fontSize: 12, color: 'var(--text-mid)', padding: '8px 0' }}>
-      All friends can see this list. Use <strong>Groups</strong> visibility to share with specific friend groups only.
-    </p>
   )
 }
 
@@ -682,6 +666,9 @@ function TaskDetailPanel({ todo, readOnly, allGroups, onClose, onUpdate, onDelet
 
   const due = formatDueDate(dueDate)
 
+  // Whether the task is editable in the panel
+  const canEdit = !readOnly && !todo.is_complete
+
   return (
     <div className="task-detail-panel">
       <div className="task-detail-header">
@@ -698,47 +685,46 @@ function TaskDetailPanel({ todo, readOnly, allGroups, onClose, onUpdate, onDelet
       <div className="task-detail-body">
         <div className="task-detail-field">
           <label className="task-detail-label">Title</label>
-          {readOnly
-            ? <p className="task-detail-value">{title}</p>
-            : <input value={title} onChange={e => setTitle(e.target.value)} className="task-detail-input" />
+          {canEdit
+            ? <input value={title} onChange={e => setTitle(e.target.value)} className="task-detail-input" />
+            : <p className="task-detail-value">{title}</p>
           }
         </div>
 
         <div className="task-detail-field">
           <label className="task-detail-label">Description</label>
-          {readOnly
-            ? <p className="task-detail-value">{description || '—'}</p>
-            : <textarea value={description} onChange={e => setDescription(e.target.value)}
+          {canEdit
+            ? <textarea value={description} onChange={e => setDescription(e.target.value)}
                 className="task-detail-input" rows={3} placeholder="Add a description…" />
+            : <p className="task-detail-value">{description || '—'}</p>
           }
         </div>
 
         <div className="task-detail-field">
           <label className="task-detail-label">Notes</label>
-          {readOnly
-            ? <p className="task-detail-value">{notes || '—'}</p>
-            : <textarea value={notes} onChange={e => setNotes(e.target.value)}
+          {canEdit
+            ? <textarea value={notes} onChange={e => setNotes(e.target.value)}
                 className="task-detail-input" rows={2} placeholder="Add notes…" />
+            : <p className="task-detail-value">{notes || '—'}</p>
           }
         </div>
 
         <div className="task-detail-field">
           <label className="task-detail-label">Due Date</label>
-          {readOnly
-            ? <p className={`task-detail-value ${due?.isOverdue ? 'overdue' : ''}`}>
-                {dueDate ? new Date(dueDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-              </p>
-            : (
-              <div className="task-detail-due-row">
-                <input type="datetime-local" value={dueDate}
-                  onChange={e => setDueDate(e.target.value)} className="task-detail-input" />
-                {dueDate && (
-                  <button className="task-detail-clear-btn" onClick={() => setDueDate('')} title="Clear">✕</button>
-                )}
-              </div>
-            )
-          }
-          {due && !readOnly && (
+          {canEdit ? (
+            <div className="task-detail-due-row">
+              <input type="datetime-local" value={dueDate}
+                onChange={e => setDueDate(e.target.value)} className="task-detail-input" />
+              {dueDate && (
+                <button className="task-detail-clear-btn" onClick={() => setDueDate('')} title="Clear">✕</button>
+              )}
+            </div>
+          ) : (
+            <p className={`task-detail-value ${due?.isOverdue ? 'overdue' : ''}`}>
+              {dueDate ? new Date(dueDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+            </p>
+          )}
+          {due && canEdit && (
             <span className={`task-detail-due-preview ${due.isOverdue ? 'overdue' : ''}`}>
               {due.label}
             </span>
@@ -750,10 +736,10 @@ function TaskDetailPanel({ todo, readOnly, allGroups, onClose, onUpdate, onDelet
           <div className="task-detail-status-row">
             {STATUS_OPTIONS.map(opt => (
               <button key={opt.value}
-                disabled={readOnly || todo.is_complete}
+                disabled={!canEdit}
                 className={`task-status-btn ${(status === opt.value || (todo.is_complete && opt.value === 'done')) ? 'active' : ''}`}
                 style={{ '--st-color': opt.color }}
-                onClick={() => !readOnly && !todo.is_complete && handleStatusChange(opt.value)}>
+                onClick={() => canEdit && handleStatusChange(opt.value)}>
                 {opt.label}
               </button>
             ))}
@@ -777,11 +763,17 @@ function TaskDetailPanel({ todo, readOnly, allGroups, onClose, onUpdate, onDelet
         )}
       </div>
 
-      {!readOnly && (
+      {canEdit && (
         <div className="task-detail-footer">
           <button className="btn-primary" onClick={save} disabled={saving}>
             {saving ? 'Saving…' : 'Save changes'}
           </button>
+          <button className="btn-danger" onClick={() => onDelete(todo.id)}>Delete</button>
+        </div>
+      )}
+      {todo.is_complete && !readOnly && (
+        <div className="task-detail-footer">
+          <p className="task-complete-note">Uncheck to edit this task.</p>
           <button className="btn-danger" onClick={() => onDelete(todo.id)}>Delete</button>
         </div>
       )}

@@ -9,23 +9,22 @@ export default function Friends({ userId }) {
   const [friends, setFriends] = useState([])
   const [requests, setRequests] = useState({ incoming: [], outgoing: [] })
   const [friendGroups, setFriendGroups] = useState([])
-  const [groupsImIn, setGroupsImIn] = useState([])
   const [removedAlerts, setRemovedAlerts] = useState([])
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
-  // Inline tab notifications
-  const [tabNotifs, setTabNotifs] = useState([]) // { id, message, type }
+  const [tabNotifs, setTabNotifs] = useState([])
   const visible = useFadeIn([tab])
   const { markRead, notifications } = useNotifications()
 
   // Profile modal
-  const [profileModal, setProfileModal] = useState(null) // { profile, friendStatus }
+  const [profileModal, setProfileModal] = useState(null)
   const openProfile = async (targetProfile) => {
     const status = await getFriendStatus(targetProfile.id)
     setProfileModal({ profile: targetProfile, friendStatus: status })
   }
+  
   const getFriendStatus = async (targetId) => {
     const { data: sentReq } = await supabase.from('friend_requests')
       .select('id').eq('from_user_id', userId).eq('to_user_id', targetId).eq('status', 'pending').maybeSingle()
@@ -40,24 +39,21 @@ export default function Friends({ userId }) {
     return 'none'
   }
 
-  // Clear friend-related notifications and collect tab popups on mount
   useEffect(() => {
     const friendNotifs = notifications.filter(n => !n.read && ['friend_request', 'friend_removed', 'friend_accepted'].includes(n.type))
-    // Generate tab notification messages
     const msgs = friendNotifs.map(n => {
       const name = n.from_user?.display_name || n.from_user?.username || 'Someone'
-      const msgs = {
+      const map = {
         friend_request: `${name} sent you a friend request`,
         friend_accepted: `${name} accepted your friend request`,
         friend_removed: `${name} removed you as a friend`,
       }
-      return { id: n.id, message: msgs[n.type] || n.type, type: n.type }
+      return { id: n.id, message: map[n.type] || n.type, type: n.type }
     })
     setTabNotifs(msgs)
     friendNotifs.forEach(n => markRead(n.id))
-  }, []) // only on mount
+  }, [])
 
-  // Group-related notifications
   useEffect(() => {
     const groupNotifs = notifications.filter(n => !n.read && n.type === 'friend_list_created')
     if (groupNotifs.length) {
@@ -117,15 +113,24 @@ export default function Friends({ userId }) {
       outgoing: (reqs ?? []).filter(r => r.from_user?.id === userId),
     })
 
-    const { data: fgroups } = await supabase.from('friend_groups')
-      .select('*, members:friend_group_members(friend_id)')
-      .eq('owner_id', userId)
-    setFriendGroups(fgroups ?? [])
-
+    // Fetch unified groups (groups where I am a member)
     const { data: memberRows } = await supabase.from('friend_group_members')
-      .select('group_id, group:friend_groups(id, name, owner_id, owner:profiles!friend_groups_owner_id_fkey(username, display_name))')
+      .select('group_id')
       .eq('friend_id', userId)
-    setGroupsImIn(memberRows?.map(r => r.group).filter(Boolean) ?? [])
+    
+    const myGroupIds = memberRows?.map(r => r.group_id) || []
+
+    const { data: fgroups } = await supabase.from('friend_groups')
+      .select(`
+        id, name, owner_id,
+        members:friend_group_members(
+          friend_id,
+          profile:profiles!friend_group_members_friend_id_fkey(id, username, display_name, avatar_url)
+        )
+      `)
+      .in('id', myGroupIds.length ? myGroupIds : ['00000000-0000-0000-0000-000000000000'])
+      
+    setFriendGroups(fgroups ?? [])
   }, [userId])
 
   const searchUsers = async (q) => {
@@ -169,25 +174,39 @@ export default function Friends({ userId }) {
   const createFriendGroup = async (e) => {
     e.preventDefault()
     if (!newGroupName.trim()) return
-    await supabase.from('friend_groups').insert({ owner_id: userId, name: newGroupName.trim() })
+    const { data: group } = await supabase.from('friend_groups').insert({ owner_id: userId, name: newGroupName.trim() }).select().single()
+    
+    // Automatically add creator to the group
+    if (group) {
+      await supabase.from('friend_group_members').insert({ group_id: group.id, friend_id: userId })
+    }
+    
     setNewGroupName(''); fetchAll()
   }
 
-  const deleteFriendGroup = async (groupId) => {
-    if (!confirm('Delete this friend group?')) return
-    await supabase.from('friend_groups').delete().eq('id', groupId)
-    fetchAll()
-  }
-
   const leaveGroup = async (groupId) => {
+    const group = friendGroups.find(g => g.id === groupId)
+    if (!group) return
     if (!confirm('Leave this group?')) return
+    
     await supabase.from('friend_group_members').delete().eq('group_id', groupId).eq('friend_id', userId)
+
+    // Delete group if no members remain
+    if (group.members && group.members.length <= 1) {
+      await supabase.from('friend_groups').delete().eq('id', groupId)
+    }
+
     fetchAll()
   }
 
   const toggleFriendInGroup = async (groupId, friendId, isInGroup) => {
     if (isInGroup) {
       await supabase.from('friend_group_members').delete().eq('group_id', groupId).eq('friend_id', friendId)
+      
+      const group = friendGroups.find(g => g.id === groupId)
+      if (group && group.members && group.members.length <= 1) {
+         await supabase.from('friend_groups').delete().eq('id', groupId)
+      }
     } else {
       await supabase.from('friend_group_members').insert({ group_id: groupId, friend_id: friendId })
     }
@@ -219,7 +238,6 @@ export default function Friends({ userId }) {
     requests.outgoing.some(r => r.to_user?.id === id) ||
     requests.incoming.some(r => r.from_user?.id === id)
 
-  // Handle send/remove from modal
   const handleModalSendRequest = async () => {
     if (!profileModal) return
     await sendRequest(profileModal.profile.id)
@@ -249,7 +267,6 @@ export default function Friends({ userId }) {
         </div>
       </div>
 
-      {/* Inline tab notifications */}
       {tabNotifs.length > 0 && (
         <div className="tab-notifs">
           {tabNotifs.map(n => (
@@ -261,7 +278,6 @@ export default function Friends({ userId }) {
         </div>
       )}
 
-      {/* Removed-as-friend alerts */}
       {removedAlerts.length > 0 && (
         <div className="removed-alerts">
           {removedAlerts.map(alert => (
@@ -273,7 +289,6 @@ export default function Friends({ userId }) {
         </div>
       )}
 
-      {/* Search */}
       <div className="search-bar">
         <input value={search}
           onChange={e => { setSearch(e.target.value); searchUsers(e.target.value) }}
@@ -310,7 +325,6 @@ export default function Friends({ userId }) {
                 <span className="display-name">{friend.display_name || friend.username}</span>
                 <span className="username-tag">@{friend.username}</span>
               </div>
-              {/* <button className="btn-ghost-sm" onClick={() => removeFriend(friend)}>Remove</button> */}
             </li>
           ))}
           {friends.length === 0 && <p className="empty-state">No friends yet — search above to add some.</p>}
@@ -358,7 +372,6 @@ export default function Friends({ userId }) {
 
       {tab === 'groups' && (
         <div className="friend-groups-section">
-          <div className="section-label" style={{ marginBottom: 10 }}>My groups</div>
           <form onSubmit={createFriendGroup} className="inline-form" style={{ marginBottom: 20 }}>
             <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
               placeholder="New group name (e.g. Work, Close friends)" />
@@ -371,20 +384,34 @@ export default function Friends({ userId }) {
                 <span className="friend-group-name">{group.name}</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span className="member-count">{group.members?.length ?? 0} members</span>
-                  <button className="btn-ghost-sm" style={{ color: 'var(--danger)' }}
-                    onClick={() => deleteFriendGroup(group.id)}>Delete</button>
+                  <button className="btn-ghost-sm" onClick={() => leaveGroup(group.id)}>Leave group</button>
                 </div>
               </div>
+              
+              {/* Member list — shows who is in the group */}
+              {group.members && group.members.length > 0 && (
+                <div className="fg-member-chips">
+                  {group.members.map(m => (
+                    <div key={m.friend_id} className={`fg-member-chip ${m.friend_id === userId ? 'fg-member-self' : ''}`}>
+                      <div className="fg-chip-avatar">
+                        {m.profile?.avatar_url
+                          ? <img src={m.profile.avatar_url} alt="" />
+                          : <span>{(m.profile?.display_name || m.profile?.username || '?')[0].toUpperCase()}</span>
+                        }
+                      </div>
+                      <span>{m.profile?.display_name || m.profile?.username}{m.friend_id === userId ? ' (you)' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <ul className="group-member-list">
                 {friends.map(friend => {
                   const inGroup = group.members?.some(m => m.friend_id === friend.id)
                   return (
                     <li key={friend.id} className="group-member-item">
                       <Avatar profile={friend} size={28} clickable />
-                      <span
-                        style={{ cursor: 'pointer', flex: 1 }}
-                        onClick={() => openProfile(friend)}
-                      >
+                      <span style={{ cursor: 'pointer', flex: 1 }} onClick={() => openProfile(friend)}>
                         {friend.display_name || friend.username}
                       </span>
                       <button
@@ -399,27 +426,9 @@ export default function Friends({ userId }) {
             </div>
           ))}
           {friendGroups.length === 0 && <p className="empty-state" style={{ marginBottom: 24 }}>No groups yet.</p>}
-
-          {groupsImIn.length > 0 && (<>
-            <div className="section-label" style={{ margin: '20px 0 10px' }}>Groups I'm in</div>
-            {groupsImIn.map(g => (
-              <div key={g.id} className="friend-group-card">
-                <div className="friend-group-header">
-                  <div>
-                    <span className="friend-group-name">{g.name}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-light)', marginLeft: 8 }}>
-                      by @{g.owner?.username}
-                    </span>
-                  </div>
-                  <button className="btn-ghost-sm" onClick={() => leaveGroup(g.id)}>Leave</button>
-                </div>
-              </div>
-            ))}
-          </>)}
         </div>
       )}
 
-      {/* Profile Modal */}
       {profileModal && (
         <ProfileModal
           profile={profileModal.profile}

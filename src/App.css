@@ -1500,11 +1500,13 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 /* ── Sidebar: refresh button ── */
 .sidebar-refresh-btn {
   margin-left: auto; flex-shrink: 0;
-  background: none; border: none;
+  background: rgba(255, 255, 255, 1);
+  border: none;
   color: var(--text-light); font-size: 16px;
   padding: 3px 6px; border-radius: var(--radius);
   cursor: pointer; line-height: 1;
   transition: color var(--t-fast), background var(--t-fast);
+  z-index: 1;
 }
 .sidebar-refresh-btn:hover { color: var(--accent); background: var(--accent-bg); }
 
@@ -1739,3 +1741,152 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 .group-name           { font-size: 13px; }
 .sidebar-empty        { font-size: 12px; }
 .sidebar-friend-name  { font-size: 12px; }
+/* ═══════════════════════════════════════════════════════════════
+   BANNER CROSSFADE ROW  (sidebar profile + friend rows)
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+  .banner-fade-row wraps the profile/friend row.
+  Inside it: .bfr-strip (absolute, full height, left portion)
+  which layers base bg → banner → fade mask.
+  The avatar sits after the strip, at z-index 1.
+*/
+
+.banner-fade-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+/*
+  The banner strip is anchored to the RIGHT edge of the row.
+  Left side = sidebar bg color (solid). Right side = banner/gradient fading in.
+  Mask gradient: left=var(--bg) solid, right=transparent → lets banner show on right.
+*/
+.bfr-strip {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 160px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bfr-base {
+  position: absolute; inset: 0;
+  background: var(--bg);
+}
+
+.bfr-banner {
+  position: absolute; inset: 0;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+}
+
+/* Mask: left edge of strip is transparent (shows banner), right edge fades to bg */
+/* Actually we want: left=sidebar-bg fading OUT, right=banner showing.
+   So gradient goes left=var(--bg) → right=transparent */
+.bfr-mask {
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, var(--bg) 0%, transparent 80%);
+}
+
+.banner-fade-row:hover .bfr-banner {
+  opacity: 0.8;
+  transition: opacity 0.25s ease;
+}
+
+/* ── Self profile row ── */
+.sidebar-profile.banner-fade-row {
+  gap: 10px;
+  padding: 16px 14px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--t-fast);
+}
+.sidebar-profile.banner-fade-row:hover { background: transparent; }
+.sidebar-profile.banner-fade-row:hover .bfr-base { background: var(--bg2); }
+
+/* ── Friend rows in Friends' Lists section ── */
+.sidebar-friend-header.banner-fade-row {
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 0 0 1px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--t-fast);
+  user-select: none;
+}
+.sidebar-friend-header.banner-fade-row:hover { background: transparent; }
+.sidebar-friend-header.banner-fade-row:hover .bfr-base { background: var(--bg2); }
+.sidebar-friend-header.banner-fade-row.expanded .bfr-base { background: var(--bg2); }
+.sidebar-friend-header.banner-fade-row.expanded { background: transparent; }
+
+/* Narrower strip for compact friend rows */
+.sidebar-friend-header.banner-fade-row .bfr-strip { width: 160px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   FRIEND GROUP MEMBER CHIPS
+   ═══════════════════════════════════════════════════════════════ */
+
+.fg-member-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.fg-member-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px 3px 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.fg-member-chip.fg-member-owner {
+  border-color: var(--accent-mid);
+  background: var(--accent-bg);
+}
+
+.fg-member-chip.fg-member-self {
+  border-color: var(--accent-mid);
+  opacity: 0.85;
+}
+
+.fg-chip-avatar {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--accent-bg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600; color: var(--accent);
+  flex-shrink: 0;
+}
+.fg-chip-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.fg-owner-badge {
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-radius: 8px;
+  padding: 1px 5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-left: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPLETED TASK — uncheck hint in detail panel
+   ═══════════════════════════════════════════════════════════════ */
+
+.task-complete-note {
+  font-size: 12px;
+  color: var(--text-light);
+  flex: 1;
+  margin: 0;
+}
