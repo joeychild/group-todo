@@ -258,7 +258,7 @@ export default function Friends({ userId }) {
           {[
             ['friends', `Friends${friends.length ? ` (${friends.length})` : ''}`],
             ['requests', `Requests${requests.incoming.length ? ` (${requests.incoming.length})` : ''}`],
-            ['groups', 'Groups'],
+            ['groups', `Groups${friendGroups.length ? ` (${friendGroups.length})` : ''}`],
           ].map(([id, label]) => (
             <button key={id} className={`tab-btn ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
               {label}

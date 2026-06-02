@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { useFadeIn } from '../hooks/useFadeIn'
 import { useNotifications } from '../context/NotificationContext'
 import { useAudio } from '../context/AudioContext'
+import { EditListModal } from './MyTasksHome'
 
 const VISIBILITY_OPTIONS = [
   { value: 'private', label: '🔒 Private', desc: 'Only you' },
@@ -157,15 +158,10 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
   const [newStatus, setNewStatus] = useState('not_started')
   const [loading, setLoading] = useState(true)
   const [editingGroup, setEditingGroup] = useState(false)
-  const [groupName, setGroupName] = useState(group.name)
-  const [groupVisibility, setGroupVisibility] = useState(group.visibility)
-  const [coverFile, setCoverFile] = useState(null)
   const [coverPreview, setCoverPreview] = useState(group.cover_url)
   const [dragOver, setDragOver] = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
   const [allGroups, setAllGroups] = useState([])
-  const [friendGroups, setFriendGroups] = useState([])
-  const [groupVisibilityShares, setGroupVisibilityShares] = useState([])
   const [showAddForm, setShowAddForm] = useState(false)
   const dragItem = useRef(null)
   const visible = useFadeIn([group.id])
@@ -216,19 +212,11 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
   }, [group.id, userId])
 
   useEffect(() => {
-    setGroupName(group.name)
-    setGroupVisibility(group.visibility)
     setCoverPreview(group.cover_url)
     fetchData()
 
     supabase.from('list_groups').select('id, name, icon').eq('owner_id', userId).neq('id', group.id)
       .then(({ data }) => setAllGroups(data ?? []))
-
-    supabase.from('friend_groups').select('id, name').eq('owner_id', userId)
-      .then(({ data }) => setFriendGroups(data ?? []))
-
-    supabase.from('list_group_shares').select('friend_group_id').eq('list_group_id', group.id)
-      .then(({ data }) => setGroupVisibilityShares((data ?? []).map(r => r.friend_group_id)))
   }, [group.id, fetchData])
 
   // Due date toast checker
@@ -325,52 +313,16 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
     await Promise.all(updated.map(t => supabase.from('todos').update({ position: t.position }).eq('id', t.id)))
   }
 
-  const handleCoverChange = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    setCoverFile(file); setCoverPreview(URL.createObjectURL(file))
-  }
-
-  const saveGroupSettings = async () => {
-    let cover_url = group.cover_url
-    if (coverFile) {
-      const ext = coverFile.name.split('.').pop()
-      const path = `${userId}/${group.id}.${ext}`
-      await supabase.storage.from('avatars').upload(path, coverFile, { upsert: true })
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-      cover_url = urlData.publicUrl
-    }
-    await supabase.from('list_group_shares').delete().eq('list_group_id', group.id)
-    if (groupVisibility === 'groups' && groupVisibilityShares.length) {
-      await supabase.from('list_group_shares').insert(
-        groupVisibilityShares.map(fgId => ({ list_group_id: group.id, friend_group_id: fgId }))
-      )
-    }
-    const { data } = await supabase.from('list_groups')
-      .update({ name: groupName, visibility: groupVisibility, cover_url })
-      .eq('id', group.id).select().single()
-    if (data) onGroupUpdate(data)
-    setEditingGroup(false)
-  }
-
-  const deleteGroup = async () => {
-    if (!confirm(`Delete "${group.name}" and all its tasks? This cannot be undone.`)) return
-    await supabase.from('list_groups').delete().eq('id', group.id)
-    onGroupUpdate(null)
-  }
-
-  if (loading) return <div className="page-loading">Loading…</div>
-
   const headerBg = coverPreview
     ? { backgroundImage: `url(${coverPreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }
     : { background: defaultGradient(group.id || group.name) }
 
   return (
     <div className={`todo-page-wrapper ${selectedTodo ? 'with-detail' : ''}`}>
-      <div className={`todo-page ${visible ? 'fade-in' : ''}`}>
-        <div className="todo-header">
-          {!editingGroup && (
-            <div className="todo-cover-hero" style={headerBg}>
+      <div className={`todo-page ${!loading && visible ? 'fade-in' : 'fade-in-hidden'}`}>
+        {loading && <div className="page-loading todo-loading-fade">Loading…</div>}
+        {!loading && <><div className="todo-header">
+          <div className="todo-cover-hero" style={headerBg}>
               <div className="todo-cover-overlay" />
               <div className="todo-cover-content">
                 <span className="todo-cover-icon">{group.icon || (group.cover_url ? '' : '📋')}</span>
@@ -403,22 +355,19 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
                 </div>
               </div>
             </div>
-          )}
-          {editingGroup && (
-            <GroupEditForm
-              groupName={groupName} setGroupName={setGroupName}
-              groupVisibility={groupVisibility} setGroupVisibility={setGroupVisibility}
-              coverPreview={coverPreview} setCoverPreview={setCoverPreview} setCoverFile={setCoverFile}
-              handleCoverChange={handleCoverChange}
-              friendGroups={friendGroups}
-              groupVisibilityShares={groupVisibilityShares} setGroupVisibilityShares={setGroupVisibilityShares}
-              onSave={saveGroupSettings} onCancel={() => setEditingGroup(false)} onDelete={deleteGroup}
-            />
-          )}
         </div>
 
-        {!editingGroup && (
-          <>
+        {editingGroup && (
+          <EditListModal
+            group={group}
+            userId={userId}
+            onSaved={(updated) => { onGroupUpdate(updated); setEditingGroup(false) }}
+            onDeleted={() => { onGroupUpdate(null); setEditingGroup(false) }}
+            onClose={() => setEditingGroup(false)}
+          />
+        )}
+
+        <>
             {!readOnly && (
               <div className="add-todo-section">
                 {!showAddForm ? (
@@ -529,10 +478,10 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
               )}
             </ul>
           </>
-        )}
+        </>}
       </div>
 
-      {selectedTodo && !editingGroup && (
+      {selectedTodo && (
         <TaskDetailPanel
           key={selectedTodo.id}
           todo={selectedTodo}
@@ -545,86 +494,6 @@ export default function TodoList({ group, userId, onGroupUpdate, readOnly = fals
           onToggle={toggleTodo}
         />
       )}
-    </div>
-  )
-}
-
-// ── Group edit form ─────────────────────────────────────────────────────────
-function GroupEditForm({ groupName, setGroupName, groupVisibility, setGroupVisibility,
-  coverPreview, setCoverPreview, setCoverFile, handleCoverChange,
-  friendGroups, groupVisibilityShares, setGroupVisibilityShares,
-  onSave, onCancel, onDelete }) {
-
-  const toggleShare = (id) => {
-    setGroupVisibilityShares(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    )
-  }
-
-  return (
-    <div className="group-edit-form">
-      <div className="cover-upload-area">
-        {coverPreview
-          ? <img src={coverPreview} alt="cover" className="cover-preview" />
-          : <div className="cover-placeholder">No cover</div>
-        }
-        <label className="cover-upload-btn">
-          {coverPreview ? 'Change cover' : 'Add cover'}
-          <input type="file" accept="image/*" onChange={handleCoverChange} hidden />
-        </label>
-        {coverPreview && (
-          <button className="btn-ghost-sm" onClick={() => { setCoverPreview(null); setCoverFile(null) }}>Remove</button>
-        )}
-      </div>
-
-      <div className="group-edit-row">
-        <input className="group-name-input" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="List name" autoFocus />
-      </div>
-
-      <div className="visibility-picker">
-        {VISIBILITY_OPTIONS.map(opt => (
-          <button key={opt.value}
-            className={`visibility-opt ${groupVisibility === opt.value ? 'active' : ''}`}
-            onClick={() => setGroupVisibility(opt.value)}>
-            <span>{opt.label}</span>
-            <span className="vis-desc">{opt.desc}</span>
-          </button>
-        ))}
-      </div>
-
-      {groupVisibility === 'groups' && (
-        <div className="friend-group-share-picker">
-          <div className="fgs-header">
-            <span className="fgs-label">Visible to these friend groups:</span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn-ghost-sm" onClick={() => setGroupVisibilityShares(friendGroups.map(g => g.id))}>Select all</button>
-              <button className="btn-ghost-sm" onClick={() => setGroupVisibilityShares([])}>Remove all</button>
-            </div>
-          </div>
-          {friendGroups.length === 0
-            ? <p style={{ fontSize: 12, color: 'var(--text-light)' }}>No friend groups yet.</p>
-            : friendGroups.map(fg => (
-                <label key={fg.id} className="fgs-row">
-                  <input type="checkbox" checked={groupVisibilityShares.includes(fg.id)}
-                    onChange={() => toggleShare(fg.id)} />
-                  <span>{fg.name}</span>
-                </label>
-              ))
-          }
-        </div>
-      )}
-
-      {groupVisibility === 'friends' && (
-        <p style={{ fontSize: 12, color: 'var(--text-mid)', padding: '8px 0' }}>
-          All friends can see this list. Use <strong>Groups</strong> visibility to share with specific friend groups only.
-        </p>
-      )}
-
-      <div className="group-edit-actions">
-        <button className="btn-primary" onClick={onSave}>Save changes</button>
-        <button className="btn-ghost" onClick={onCancel}>Cancel</button>
-        <button className="btn-danger" onClick={onDelete}>Delete list</button>
-      </div>
     </div>
   )
 }

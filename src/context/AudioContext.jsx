@@ -38,14 +38,40 @@ export function AudioProvider({ children }) {
     localStorage.setItem('audioSettings', JSON.stringify(settings))
   }, [settings])
 
+  const currentAudio = useRef(null)
+
   const _play = (url, volume) => {
     if (!url) return
     try {
+      // Stop any currently playing audio
+      if (currentAudio.current) {
+        currentAudio.current.pause()
+        currentAudio.current.currentTime = 0
+        currentAudio.current = null
+      }
       const audio = new Audio(url)
       audio.volume = Math.max(0, Math.min(1, volume))
+      currentAudio.current = audio
+      audio.onended = () => { if (currentAudio.current === audio) currentAudio.current = null }
       audio.play().catch(() => {})
     } catch (e) { console.warn('Audio playback failed', e) }
   }
+
+  // Stop audio on page hide (tab switch / navigate away)
+  useEffect(() => {
+    const stop = () => {
+      if (currentAudio.current) {
+        currentAudio.current.pause()
+        currentAudio.current = null
+      }
+    }
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stop() })
+    window.addEventListener('pagehide', stop)
+    return () => {
+      document.removeEventListener('visibilitychange', stop)
+      window.removeEventListener('pagehide', stop)
+    }
+  }, [])
 
   const playNudge = () => {
     if (settings.nudgeSound === 'off') return

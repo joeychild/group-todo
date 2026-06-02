@@ -18,8 +18,16 @@ function AppShell({ session }) {
   const [loading, setLoading] = useState(true)
   const [listGroups, setListGroups] = useState([])
   const [selectedGroup, setSelectedGroup] = useState(null)
-  const [currentView, setCurrentView] = useState('my-todos')
+  const [pendingGroupId] = useState(() => sessionStorage.getItem('groupdo_group') || null)
+  const [currentView, setCurrentView] = useState(() => {
+    return sessionStorage.getItem('groupdo_view') || 'my-todos'
+  })
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const changeView = (v) => {
+    sessionStorage.setItem('groupdo_view', v)
+    setCurrentView(v)
+  }
 
   // Per-list notification counts (nudges + overdue)
   const [listNudgeCounts, setListNudgeCounts]   = useState({}) // { groupId: n }
@@ -99,7 +107,7 @@ function AppShell({ session }) {
     if (listGroups.length > 0 && profile) refreshListNotifs(listGroups)
   }, [listGroups, profile, refreshKey])
 
-  const handleRefresh = () => setRefreshKey(k => k + 1)
+  const handleRefresh = () => window.location.reload()
 
   const handleGroupUpdate = (updated) => {
     if (!updated) {
@@ -135,10 +143,13 @@ function AppShell({ session }) {
           userId={profile.id}
           myLists={listGroups}
           selectedGroup={selectedGroup}
-          onSelectGroup={setSelectedGroup}
+          onSelectGroup={(g) => {
+            setSelectedGroup(g)
+            sessionStorage.setItem('groupdo_group', g?.id || '')
+          }}
           currentView={currentView}
           onViewChange={(v) => {
-            setCurrentView(v)
+            changeView(v)
             if (v !== 'list' && v !== 'friend-list') setSelectedGroup(null)
           }}
           listNudgeCounts={listNudgeCounts}
@@ -162,14 +173,14 @@ function AppShell({ session }) {
               listGroups={listGroups}
               onSelectGroup={(g) => {
                 setSelectedGroup(g)
-                setCurrentView('list')
+                changeView('list')
                 handleOpenList(g.id)
               }}
               onTogglePin={handleTogglePin}
               onGroupCreated={(g) => {
                 setListGroups(prev => [...prev, g].sort((a, b) => a.position - b.position))
                 setSelectedGroup(g)
-                setCurrentView('list')
+                changeView('list')
               }}
               onGroupUpdated={(updated) => {
                 setListGroups(prev => prev.map(g => g.id === updated.id ? updated : g))

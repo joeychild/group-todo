@@ -1774,7 +1774,7 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 
 .bfr-base {
   position: absolute; inset: 0;
-  background: var(--bg);
+  background: var(--surface2); /* must match sidebar bg */
 }
 
 .bfr-banner {
@@ -1788,7 +1788,7 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
    So gradient goes left=var(--bg) → right=transparent */
 .bfr-mask {
   position: absolute; inset: 0;
-  background: linear-gradient(to right, var(--bg) 0%, transparent 80%);
+  background: linear-gradient(to right, var(--surface2) 0%, transparent 75%);
 }
 
 .banner-fade-row:hover .bfr-banner {
@@ -1806,6 +1806,7 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 }
 .sidebar-profile.banner-fade-row:hover { background: transparent; }
 .sidebar-profile.banner-fade-row:hover .bfr-base { background: var(--bg2); }
+.sidebar-profile.banner-fade-row:hover .bfr-mask { background: linear-gradient(to right, var(--bg2) 0%, transparent 75%); }
 
 /* ── Friend rows in Friends' Lists section ── */
 .sidebar-friend-header.banner-fade-row {
@@ -1819,7 +1820,9 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
 }
 .sidebar-friend-header.banner-fade-row:hover { background: transparent; }
 .sidebar-friend-header.banner-fade-row:hover .bfr-base { background: var(--bg2); }
+.sidebar-friend-header.banner-fade-row:hover .bfr-mask { background: linear-gradient(to right, var(--bg2) 0%, transparent 75%); }
 .sidebar-friend-header.banner-fade-row.expanded .bfr-base { background: var(--bg2); }
+.sidebar-friend-header.banner-fade-row.expanded .bfr-mask { background: linear-gradient(to right, var(--bg2) 0%, transparent 75%); }
 .sidebar-friend-header.banner-fade-row.expanded { background: transparent; }
 
 /* Narrower strip for compact friend rows */
@@ -1889,4 +1892,139 @@ input:disabled { opacity: 0.5; cursor: not-allowed; background: var(--bg2); }
   color: var(--text-light);
   flex: 1;
   margin: 0;
+}
+
+/* ═══════════════════════════════════════════════════════
+   150% SCALE — fills the screen with more content
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+  --sidebar-w: 320px;
+}
+
+body { font-size: 15px; }
+
+/* Main content area */
+.main-content { padding: 40px 56px 56px; }
+
+/* Page containers */
+.page          { max-width: 820px; }
+.my-tasks-home { max-width: 900px; }
+.todo-page     { max-width: 820px; }
+.settings-section { max-width: 660px; }
+
+/* Task detail panel wider */
+.task-detail-panel { width: 360px; }
+
+/* Page headers */
+.page-header h2 { font-size: 30px; }
+.tasks-home-title-group h2 { font-size: 34px; }
+.tasks-home-meta { font-size: 14px; }
+
+/* Todo items */
+.todo-item { padding: 11px 14px; }
+.todo-title { font-size: 15px; }
+.todo-due   { font-size: 12px; }
+.todo-status-pill { font-size: 12px; }
+
+/* Todo cover */
+.todo-cover-hero  { min-height: 160px; }
+.todo-cover-title { font-size: 26px; }
+.todo-cover-desc  { font-size: 14px; }
+
+/* List cards */
+.list-card { min-height: 190px; }
+.list-card-name { font-size: 17px; }
+.pinned-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+
+/* List rows */
+.list-row { padding: 14px 16px; }
+.list-row-name { font-size: 16px; }
+.list-row-sub  { font-size: 13px; }
+
+/* Modals */
+.modal-card { max-width: 520px; padding: 36px; }
+.modal-header h3 { font-size: 24px; }
+.modal-avatar-btn { width: 108px; height: 108px; }
+.modal-avatar-glyph { font-size: 46px; }
+.modal-name-input { font-size: 16px; }
+.vis-opt { padding: 13px 16px; }
+.vis-opt-label { font-size: 14px; }
+.vis-opt-desc  { font-size: 12px; }
+
+/* Profile modal — larger */
+.profile-modal-card { max-width: 480px; }
+.profile-modal-banner { height: 150px; }
+.profile-modal-avatar { width: 96px; height: 96px; font-size: 34px; }
+.profile-modal-avatar-wrap { margin-top: -48px; }
+.profile-modal-display { font-size: 24px; }
+.profile-modal-username { font-size: 14px; }
+.profile-modal-bio { font-size: 14px; }
+.profile-modal-body { padding: 14px 24px 24px; }
+
+/* Notifications */
+.notif-item { padding: 14px 16px; }
+.notif-avatar { width: 42px; height: 42px; }
+.notif-text { font-size: 14px; }
+.notif-time { font-size: 12px; }
+.notif-icon { font-size: 20px; }
+
+/* Friends */
+.user-item, .search-result-item { padding: 12px 16px; }
+.display-name { font-size: 15px; }
+.username-tag { font-size: 12px; }
+.friend-group-name { font-size: 15px; }
+
+/* Settings */
+.settings-block { padding: 24px; }
+.settings-block h3 { font-size: 16px; }
+.settings-hint { font-size: 14px; }
+.notif-pref-label { font-size: 15px; }
+.notif-pref-desc  { font-size: 13px; }
+
+/* Sidebar */
+.sidebar-display-name   { font-size: 16px; }
+.sidebar-username       { font-size: 14px; }
+.sidebar-nav-item       { font-size: 15px; padding: 8px 12px; }
+.nav-icon               { font-size: 15px; }
+.sidebar-section-header { font-size: 11px; padding: 18px 14px 6px; }
+.group-name             { font-size: 14px; }
+.sidebar-empty          { font-size: 13px; }
+.sidebar-friend-name    { font-size: 13px; }
+.section-chevron        { font-size: 11px; }
+.sidebar-group-item     { padding: 8px 10px; }
+
+/* Tab buttons */
+.tab-btn { padding: 7px 16px; font-size: 14px; }
+
+/* Buttons */
+.btn-primary    { padding: 10px 20px; font-size: 14px; }
+.btn-ghost      { padding: 10px 20px; font-size: 14px; }
+.btn-primary-sm { padding: 6px 14px;  font-size: 13px; }
+.btn-ghost-sm   { padding: 6px 14px;  font-size: 13px; }
+.btn-danger     { padding: 10px 20px; font-size: 14px; }
+.btn-create-list { padding: 10px 20px; font-size: 14px; }
+
+/* Task detail panel */
+.task-detail-label { font-size: 12px; }
+.task-detail-value { font-size: 15px; }
+.task-detail-input { font-size: 15px; }
+.task-status-btn   { padding: 6px 14px; font-size: 13px; }
+.task-detail-title-label { font-size: 15px; }
+
+/* Add todo */
+.add-todo-trigger { font-size: 15px; padding: 12px 16px; }
+.add-todo-title-input { font-size: 16px; padding: 14px 18px; }
+
+/* Toasts */
+.toast { font-size: 14px; max-width: 340px; padding: 14px 18px; }
+
+/* Empty states */
+.empty-hero h3 { font-size: 26px; }
+.empty-hero p  { font-size: 15px; }
+
+/* Todo loading fade — smooth instead of jarring */
+.todo-loading-fade {
+  animation: fadeIn 0.2s ease;
+  padding: 40px 0;
 }

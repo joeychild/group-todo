@@ -7,14 +7,14 @@ import { useAudio } from '../context/AudioContext'
 const VISIBILITY_ICONS  = { private: '🔒', friends: '👥', groups: '🫂', public: '🌐' }
 const VISIBILITY_LABELS = { private: 'Private', friends: 'Friends', groups: 'Groups', public: 'Public' }
 
-function defaultGradient(seed = '') {
+export function defaultGradient(seed = '') {
   const h1 = (((seed.charCodeAt(0) || 0) * 37) + ((seed.charCodeAt(1) || 0) * 13)) % 360
   const h2 = (h1 + 60) % 360
   return `linear-gradient(135deg, hsl(${h1},55%,72%), hsl(${h2},60%,62%))`
 }
 
 // Compress image before upload
-async function compressImage(file, maxDim = 800, quality = 0.82) {
+export async function compressImage(file, maxDim = 800, quality = 0.82) {
   return new Promise((resolve) => {
     const img = new Image()
     const url = URL.createObjectURL(file)
@@ -305,16 +305,12 @@ function CreateListModal({ userId, onCreated, onClose }) {
   const [visibility, setVisibility]   = useState('private')
   const [avatarFile, setAvatarFile]   = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(null)
-  const [bannerFile, setBannerFile]   = useState(null)
-  const [bannerPreview, setBannerPreview] = useState(null)
   const [friendGroupShares, setFriendGroupShares] = useState([])
   const [friendShares, setFriendShares] = useState([])
   const [audioFile, setAudioFile]     = useState(null)
   const [audioName, setAudioName]     = useState(null)
   const [saving, setSaving]           = useState(false)
   const fileRef = useRef()
-  const bannerRef = useRef()
-
   const gradientSeed = name.trim() || 'new'
 
   const handleAvatarChange = async (e) => {
@@ -325,13 +321,6 @@ function CreateListModal({ userId, onCreated, onClose }) {
     setAvatarPreview(URL.createObjectURL(compressed))
   }
 
-  const handleBannerChange = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const compressed = await compressImage(file, 1200, 0.80)
-    setBannerFile(compressed)
-    setBannerPreview(URL.createObjectURL(compressed))
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -345,16 +334,6 @@ function CreateListModal({ userId, onCreated, onClose }) {
       if (!upErr) {
         const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
         cover_url = urlData.publicUrl
-      }
-    }
-
-    let banner_url = null
-    if (bannerFile) {
-      const path = `${userId}/list-banner-${Date.now()}.jpg`
-      const { error: upErr } = await supabase.storage.from('avatars').upload(path, bannerFile)
-      if (!upErr) {
-        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-        banner_url = urlData.publicUrl
       }
     }
 
@@ -375,7 +354,6 @@ function CreateListModal({ userId, onCreated, onClose }) {
       description: description.trim() || null,
       visibility,
       cover_url,
-      banner_url,
       audio_url,
       position: 0,
       pinned: false,
@@ -428,25 +406,6 @@ function CreateListModal({ userId, onCreated, onClose }) {
                 Remove image
               </button>
             )}
-          </div>
-
-          {/* Banner */}
-          <div className="field">
-            <label>Banner <span className="field-hint">— optional header image</span></label>
-            {bannerPreview ? (
-              <div className="list-banner-preview-wrap">
-                <img src={bannerPreview} alt="banner" className="list-banner-preview" />
-                <div className="list-banner-actions">
-                  <button type="button" className="btn-ghost-sm" onClick={() => bannerRef.current?.click()}>Change</button>
-                  <button type="button" className="btn-ghost-sm" onClick={() => { setBannerPreview(null); setBannerFile(null) }}>Remove</button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className="btn-ghost-sm" style={{ alignSelf: 'flex-start' }} onClick={() => bannerRef.current?.click()}>
-                + Add banner
-              </button>
-            )}
-            <input ref={bannerRef} type="file" accept="image/*" hidden onChange={handleBannerChange} />
           </div>
 
           {/* Name */}
@@ -542,14 +501,12 @@ function ListRow({ group, index, onOpen, onTogglePin, onEdit }) {
 }
 
 // ── Edit List Modal ───────────────────────────────────────────────────────
-function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
+export function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
   const [name, setName] = useState(group.name)
   const [description, setDescription] = useState(group.description || '')
   const [visibility, setVisibility] = useState(group.visibility)
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(group.cover_url)
-  const [bannerFile, setBannerFile] = useState(null)
-  const [bannerPreview, setBannerPreview] = useState(group.banner_url || null)
   const [friendGroupShares, setFriendGroupShares] = useState([])
   const [friendShares, setFriendShares] = useState([])
   const [audioFile, setAudioFile] = useState(null)
@@ -557,8 +514,6 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
   const [removeAudio, setRemoveAudio] = useState(false)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef()
-  const bannerRef = useRef()
-
   useEffect(() => {
     // Load existing shares
     supabase.from('list_group_shares').select('friend_group_id').eq('list_group_id', group.id)
@@ -573,13 +528,6 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
     setAvatarPreview(URL.createObjectURL(compressed))
   }
 
-  const handleBannerChange = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const compressed = await compressImage(file, 1200, 0.80)
-    setBannerFile(compressed)
-    setBannerPreview(URL.createObjectURL(compressed))
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -593,16 +541,6 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
       if (!upErr) {
         const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
         cover_url = urlData.publicUrl
-      }
-    }
-
-    let banner_url = bannerPreview === null ? null : group.banner_url
-    if (bannerFile) {
-      const path = `${userId}/list-banner-${group.id}.jpg`
-      const { error: bErr } = await supabase.storage.from('avatars').upload(path, bannerFile, { upsert: true })
-      if (!bErr) {
-        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-        banner_url = urlData.publicUrl
       }
     }
 
@@ -626,7 +564,7 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
     }
 
     const { data } = await supabase.from('list_groups')
-      .update({ name: name.trim(), description: description.trim() || null, visibility, cover_url, banner_url, audio_url })
+      .update({ name: name.trim(), description: description.trim() || null, visibility, cover_url, audio_url })
       .eq('id', group.id).select().single()
     setSaving(false)
     if (data) onSaved(data)
@@ -667,25 +605,6 @@ function EditListModal({ group, userId, onSaved, onDeleted, onClose }) {
                 Remove image
               </button>
             )}
-          </div>
-
-          {/* Banner */}
-          <div className="field">
-            <label>Banner <span className="field-hint">— optional header image</span></label>
-            {bannerPreview ? (
-              <div className="list-banner-preview-wrap">
-                <img src={bannerPreview} alt="banner" className="list-banner-preview" />
-                <div className="list-banner-actions">
-                  <button type="button" className="btn-ghost-sm" onClick={() => bannerRef.current?.click()}>Change</button>
-                  <button type="button" className="btn-ghost-sm" onClick={() => { setBannerPreview(null); setBannerFile(null) }}>Remove</button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className="btn-ghost-sm" style={{ alignSelf: 'flex-start' }} onClick={() => bannerRef.current?.click()}>
-                + Add banner
-              </button>
-            )}
-            <input ref={bannerRef} type="file" accept="image/*" hidden onChange={handleBannerChange} />
           </div>
 
           <div className="field">

@@ -1,6 +1,5 @@
 import { createPortal } from 'react-dom'
-import { useEffect, useState } from 'react'
-import { supabase } from '../supabaseClient'
+import { useEffect, useRef, useState } from 'react'
 
 function defaultGradient(seed = '') {
   const h1 = (((seed.charCodeAt(0) || 0) * 37) + ((seed.charCodeAt(1) || 0) * 13)) % 360
@@ -8,18 +7,6 @@ function defaultGradient(seed = '') {
   return `linear-gradient(135deg, hsl(${h1},55%,72%), hsl(${h2},60%,62%))`
 }
 
-/**
- * ProfileModal
- * Props:
- *   profile        — the profile object to display { id, username, display_name, avatar_url, bio, banner_url }
- *   currentUserId  — the logged-in user's ID
- *   isSelf         — true if viewing your own profile
- *   onClose        — called to close modal
- *   onGoSettings   — called when gear icon is clicked (only for self)
- *   friendStatus   — 'none' | 'friends' | 'pending_sent' | 'pending_received'
- *   onSendRequest  — () => void
- *   onRemoveFriend — () => void
- */
 export default function ProfileModal({
   profile,
   currentUserId,
@@ -44,7 +31,7 @@ export default function ProfileModal({
           <button className="profile-modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
-        {/* Avatar (overlapping banner) */}
+        {/* Avatar overlapping banner */}
         <div className="profile-modal-avatar-wrap">
           <div className="profile-modal-avatar">
             {profile.avatar_url
